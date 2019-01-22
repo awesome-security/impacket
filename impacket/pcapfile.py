@@ -1,4 +1,4 @@
-# Copyright (c) 2003-2016 CORE Security Technologies
+# SECUREAUTH LABS. Copyright 2018 SecureAuth Corporation. All rights reserved.
 #
 # This software is provided under under a slightly modified version
 # of the Apache Software License. See the accompanying LICENSE file
@@ -16,7 +16,7 @@ O_ICMP = 2
 O_UDP_DATA = 3
 O_ICMP_DATA = 3
 
-MAGIC = "\xD4\xC3\xB2\xA1"
+MAGIC = '"\xD4\xC3\xB2\xA1'
 
 class PCapFileHeader(structure.Structure):
     structure = (
@@ -114,64 +114,4 @@ class PcapFile:
            if answer is None: break
            yield answer
 
-def process(onion):
-    # for dhcp we only want UDP packets
-    if len(onion) <= O_UDP: return
-    if onion[O_UDP].protocol != ImpactPacket.UDP.protocol:
-       return
 
-    # we only want UDP port 67
-    if ((onion[O_UDP].get_uh_dport() != 67) and
-        (onion[O_UDP].get_uh_sport() != 67)): return
-
-    # we've got a dhcp packet
-    
-def main():
-    import sys
-
-    f_in = open(sys.argv[1],'rb')
-    try:
-       f_out = open(sys.argv[2],'wb')
-       f_out.write(str(PCapFileHeader()))
-    except:
-       f_out = None
-
-    hdr = PCapFileHeader()
-    hdr.fromString(f_in.read(len(hdr)))
-
-    #hdr.dump()
-
-    decoder = ImpactDecoder.EthDecoder()
-    while 1:
-       pkt = PCapFilePacket()
-       try:
-          pkt.fromString(f_in.read(len(pkt)))
-       except:
-          break
-       pkt['data'] = f_in.read(pkt['savedLength'])
-       hdr['packets'].append(pkt)
-       p = pkt['data']
-       try:    in_onion = [decoder.decode(p[1])]
-       except: in_onion = [decoder.decode(p[0])]
-       try:
-          while 1: in_onion.append(in_onion[-1].child())
-       except:
-          pass
-
-       process(in_onion)
-       pkt.dump()
-       #print "%r" % str(pkt)
-
-       if f_out:
-          #print eth
-
-          pkt_out = PCapFilePacket()
-          pkt_out['data'] = str(eth.get_packet())
-
-          #pkt_out.dump()
-
-          f_out.write(str(pkt_out))
-
-if __name__ == '__main__':
-   main()
-    

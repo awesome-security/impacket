@@ -1,4 +1,4 @@
-# Copyright (c) 2003-2016 CORE Security Technologies
+# SECUREAUTH LABS. Copyright 2018 SecureAuth Corporation. All rights reserved.
 #
 # This software is provided under under a slightly modified version
 # of the Apache Software License. See the accompanying LICENSE file
@@ -589,7 +589,7 @@ class NDRCONSTRUCTEDTYPE(NDR):
             data = data[pad0:]
 
         if isinstance(self.fields[fieldName], NDRUniConformantArray):
-            # Array Size is at the very begining
+            # Array Size is at the very beginning
             arraySize = unpack(arrayUnPackStr, data[:arrayItemSize])[0]
         elif isinstance(self.fields[fieldName], NDRUniConformantVaryingArray):
             # NDRUniConformantVaryingArray Array

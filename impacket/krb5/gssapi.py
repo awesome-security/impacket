@@ -1,4 +1,4 @@
-# Copyright (c) 2003-2016 CORE Security Technologies
+# SECUREAUTH LABS. Copyright 2018 SecureAuth Corporation. All rights reserved.
 #
 # This software is provided under under a slightly modified version
 # of the Apache Software License. See the accompanying LICENSE file
@@ -13,13 +13,21 @@
 #   RFC 3962 Partial Implementation
 
 import struct
+import random
+import string
 
-from Crypto.Hash import HMAC, MD5
-from Crypto.Cipher import ARC4
+from Cryptodome.Hash import HMAC, MD5
+from Cryptodome.Cipher import ARC4
 
 from impacket.structure import Structure
 from impacket.krb5 import constants, crypto
 
+# Our random number generator
+try:
+    rand = random.SystemRandom()
+except NotImplementedError:
+    rand = random
+    pass
 
 # Constants
 GSS_C_DCE_STYLE     = 0x1000
@@ -40,6 +48,8 @@ KG_USAGE_ACCEPTOR_SEAL  = 22
 KG_USAGE_ACCEPTOR_SIGN  = 23
 KG_USAGE_INITIATOR_SEAL = 24
 KG_USAGE_INITIATOR_SIGN = 25
+
+KRB5_AP_REQ = struct.pack('<H', 0x1)
 
 # 1.1.1. Initial Token - Checksum field
 class CheckSumField(Structure):
@@ -113,7 +123,7 @@ class GSSAPI_RC4:
         # Damn inacurate RFC, useful info from here
         # https://social.msdn.microsoft.com/Forums/en-US/fb98e8f4-e697-4652-bcb7-604e027e14cc/gsswrap-token-size-kerberos-and-rc4hmac?forum=os_windowsprotocols
         # and here
-        # http://www.rfc-editor.org/errata_search.php?rfc=4757
+        # https://www.rfc-editor.org/errata_search.php?rfc=4757
         GSS_WRAP_HEADER = '\x60\x2b\x06\x09\x2a\x86\x48\x86\xf7\x12\x01\x02\x02'
         token = self.WRAP()
 
@@ -131,7 +141,7 @@ class GSSAPI_RC4:
             token['SND_SEQ'] = struct.pack('>L', sequenceNumber) + '\xff'*4
 
         # Random confounder :)
-        token['Confounder'] = '12345678'
+        token['Confounder'] = ''.join([rand.choice(string.letters) for _ in range(8)])
 
         Ksign = HMAC.new(sessionKey.contents, 'signaturekey\0', MD5).digest()
         Sgn_Cksum = MD5.new(struct.pack('<L',13) + str(token)[:8] + token['Confounder'] + data).digest()

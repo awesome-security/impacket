@@ -1,4 +1,4 @@
-# Copyright (c) 2003-2016 CORE Security Technologies)
+# SECUREAUTH LABS. Copyright 2018 SecureAuth Corporation. All rights reserved.
 #
 # This software is provided under under a slightly modified version
 # of the Apache Software License. See the accompanying LICENSE file
@@ -8,7 +8,7 @@
 #
 # Description: A Windows Registry Library Parser
 #
-# Data taken from http://bazaar.launchpad.net/~guadalinex-members/dumphive/trunk/view/head:/winreg.txt
+# Data taken from https://bazaar.launchpad.net/~guadalinex-members/dumphive/trunk/view/head:/winreg.txt
 # http://sentinelchicken.com/data/TheWindowsNTRegistryFileFormat.pdf
 #
 #
@@ -403,7 +403,7 @@ class Registry:
         elif valueType == REG_MULTISZ:
             print "%s" % (valueData.decode('utf-16le'))
         else:
-            print "Unkown Type 0x%x!" % valueType
+            print "Unknown Type 0x%x!" % valueType
             hexdump(valueData)
 
     def enumKey(self, parentKey):

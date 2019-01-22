@@ -1,4 +1,4 @@
-# Copyright (c) 2003-2016 CORE Security Technologies
+# SECUREAUTH LABS. Copyright 2018 SecureAuth Corporation. All rights reserved.
 #
 # This software is provided under under a slightly modified version
 # of the Apache Software License. See the accompanying LICENSE file
@@ -11,7 +11,7 @@
 #
 #   Best way to learn how to use these calls is to grab the protocol standard
 #   so you understand what the call does, and then read the test case located
-#   at https://github.com/CoreSecurity/impacket/tree/master/impacket/testcases/SMB_RPC
+#   at https://github.com/SecureAuthCorp/impacket/tree/master/tests/SMB_RPC
 #
 #   Some calls have helper functions, which makes it even easier to use.
 #   They are located at the end of this file. 
@@ -2754,10 +2754,10 @@ def hSamrUnicodeChangePasswordUser2(dce, serverName='\x00', userName='', oldPass
     request['UserName'] = userName
 
     try:
-        from Crypto.Cipher import ARC4
+        from Cryptodome.Cipher import ARC4
     except Exception:
-        LOG.critical("Warning: You don't have any crypto installed. You need PyCrypto")
-        LOG.critical("See http://www.pycrypto.org/")
+        LOG.critical("Warning: You don't have any crypto installed. You need pycryptodomex")
+        LOG.critical("See https://pypi.org/project/pycryptodomex/")
     from impacket import crypto, ntlm
 
     if oldPwdHashLM == '' and oldPwdHashNT == '':

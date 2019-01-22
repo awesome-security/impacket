@@ -1,4 +1,4 @@
-# Copyright (c) 2003-2016 CORE Security Technologies
+# SECUREAUTH LABS. Copyright 2018 SecureAuth Corporation. All rights reserved.
 #
 # This software is provided under under a slightly modified version
 # of the Apache Software License. See the accompanying LICENSE file
@@ -11,7 +11,7 @@
 #
 #   Best way to learn how to use these calls is to grab the protocol standard
 #   so you understand what the call does, and then read the test case located
-#   at https://github.com/CoreSecurity/impacket/tree/master/impacket/testcases/SMB_RPC
+#   at https://github.com/SecureAuthCorp/impacket/tree/master/tests/SMB_RPC
 #
 #   Some calls have helper functions, which makes it even easier to use.
 #   They are located at the end of this file. 
@@ -21,6 +21,7 @@
 import hashlib
 from struct import pack
 
+from impacket import LOG
 from impacket.dcerpc.v5.ndr import NDRCALL, NDRSTRUCT, NDRPOINTER, NDRUniConformantArray, NDRUNION, NDR, NDRENUM
 from impacket.dcerpc.v5.dtypes import PUUID, DWORD, NULL, GUID, LPWSTR, BOOL, ULONG, UUID, LONGLONG, ULARGE_INTEGER, LARGE_INTEGER
 from impacket import hresult_errors, system_errors
@@ -33,10 +34,10 @@ from pyasn1.type import univ
 from pyasn1.codec.ber import decoder
 
 try:
-    from Crypto.Cipher import ARC4, DES
+    from Cryptodome.Cipher import ARC4, DES
 except Exception:
-    LOG.critical("Warning: You don't have any crypto installed. You need PyCrypto")
-    LOG.critical("See http://www.pycrypto.org/")
+    LOG.critical("Warning: You don't have any crypto installed. You need pycryptodomex")
+    LOG.critical("See https://pypi.org/project/pycryptodomex/")
 
 MSRPC_UUID_DRSUAPI = uuidtup_to_bin(('E3514235-4B06-11D1-AB04-00C04FC2DCD2','4.0'))
 
@@ -600,7 +601,14 @@ class WCHAR_ARRAY(NDRUniConformantArray):
 
     def __getitem__(self, key):
         if key == 'Data':
-            return ''.join([chr(i) for i in self.fields[key]])
+            try:
+                return ''.join([chr(i) for i in self.fields[key]])
+            except ValueError:
+                # We might have Unicode chars in here, let's use unichr instead
+                LOG.debug('ValueError exception on %s' % self.fields[key])
+                LOG.debug('Switching to unichr()')
+                return ''.join([unichr(i) for i in self.fields[key]])
+
         else:
             return NDR.__getitem__(self,key)
 
@@ -883,7 +891,7 @@ class REPLENTINFLIST(NDRSTRUCT):
         ('pParentGuidm',PUUID),
         ('pMetaDataExt',PPROPERTY_META_DATA_EXT_VECTOR),
     )
-    # ToDo: Here we should work with getData and fromString beacuse we're cheating with pNextEntInf
+    # ToDo: Here we should work with getData and fromString because we're cheating with pNextEntInf
     def fromString(self, data, soFar = 0 ):
         # Here we're changing the struct so we can represent a linked list with NDR
         self.fields['pNextEntInf'] = PREPLENTINFLIST(isNDR64 = self._isNDR64)
@@ -1205,6 +1213,19 @@ class DRSBindResponse(NDRCALL):
         ('ErrorCode',DWORD),
     )
 
+# 4.1.25 IDL_DRSUnbind (Opnum 1)
+class DRSUnbind(NDRCALL):
+    opnum = 1
+    structure = (
+        ('phDrs', DRS_HANDLE),
+    )
+
+class DRSUnbindResponse(NDRCALL):
+    structure = (
+        ('phDrs', DRS_HANDLE),
+        ('ErrorCode',DWORD),
+    )
+
 # 4.1.10 IDL_DRSGetNCChanges (Opnum 3)
 class DRSGetNCChanges(NDRCALL):
     opnum = 3
@@ -1289,6 +1310,7 @@ class DRSDomainControllerInfoResponse(NDRCALL):
 ################################################################################
 OPNUMS = {
  0 : (DRSBind,DRSBindResponse ),
+ 1 : (DRSUnbind,DRSUnbindResponse ),
  3 : (DRSGetNCChanges,DRSGetNCChangesResponse ),
  12: (DRSCrackNames,DRSCrackNamesResponse ),
  16: (DRSDomainControllerInfo,DRSDomainControllerInfoResponse ),
@@ -1305,6 +1327,11 @@ def checkNullString(string):
         return string + '\x00'
     else:
         return string
+
+def hDRSUnbind(dce, hDrs):
+    request = DRSUnbind()
+    request['phDrs'] = hDrs
+    return dce.request(request)
 
 def hDRSDomainControllerInfo(dce, hDrs, domain, infoLevel):
     request = DRSDomainControllerInfo()

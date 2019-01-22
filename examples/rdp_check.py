@@ -1,5 +1,5 @@
-#!/usr/bin/python
-# Copyright (c) 2003-2016 CORE Security Technologies
+#!/usr/bin/env python
+# SECUREAUTH LABS. Copyright 2018 SecureAuth Corporation. All rights reserved.
 #
 # This software is provided under under a slightly modified version
 # of the Apache Software License. See the accompanying LICENSE file
@@ -277,7 +277,7 @@ if __name__ == '__main__':
     import sys
     import logging
     from binascii import a2b_hex
-    from Crypto.Cipher import ARC4
+    from Cryptodome.Cipher import ARC4
     from impacket import ntlm, version
     try:
         import OpenSSL
@@ -406,8 +406,8 @@ if __name__ == '__main__':
        # a self-signed X.509 certificate.
 
        # Switching to TLS now
-       ctx = SSL.Context(SSL.TLSv1_METHOD)
-       ctx.set_cipher_list('RC4')
+       ctx = SSL.Context(SSL.TLSv1_2_METHOD)
+       ctx.set_cipher_list('RC4,AES')
        tls = SSL.Connection(ctx,s)
        tls.set_connect_state()
        tls.do_handshake()
@@ -545,7 +545,8 @@ if __name__ == '__main__':
     logger.init()
     print version.BANNER
 
-    parser = argparse.ArgumentParser(add_help = True, description = "Test whether an account is valid on the target host using the RDP protocol.")
+    parser = argparse.ArgumentParser(add_help = True, description = "Test whether an account is valid on the target "
+                                                                    "host using the RDP protocol.")
 
     parser.add_argument('target', action='store', help='[[domain/]username[:password]@]<targetName or address>')
 

@@ -1,4 +1,4 @@
-# Copyright (c) 2003-2016 CORE Security Technologies
+# SECUREAUTH LABS. Copyright 2018 SecureAuth Corporation. All rights reserved.
 #
 # This software is provided under under a slightly modified version
 # of the Apache Software License. See the accompanying LICENSE file
@@ -9,7 +9,7 @@
 # Description:
 #   Kerberos Credential Cache format implementation
 #   based on file format described at:
-#   http://repo.or.cz/w/krb5dissect.git/blob_plain/HEAD:/ccache.txt
+#   https://repo.or.cz/w/krb5dissect.git/blob_plain/HEAD:/ccache.txt
 #   Pretty lame and quick implementation, not a fun thing to do
 #   Contribution is welcome to make it the right way
 #
@@ -18,11 +18,13 @@ from datetime import datetime
 from struct import pack, unpack, calcsize
 
 from pyasn1.codec.der import decoder, encoder
+from pyasn1.type.univ import noValue
 from binascii import hexlify
 
 from impacket.structure import Structure
 from impacket.krb5 import crypto, constants, types
 from impacket.krb5.asn1 import AS_REP, seq_set, TGS_REP, EncTGSRepPart, EncASRepPart, Ticket
+from impacket import LOG
 
 DELTA_TIME = 1
 
@@ -247,12 +249,12 @@ class Credential:
     def toTGT(self):
         tgt_rep = AS_REP()
         tgt_rep['pvno'] = 5
-        tgt_rep['msg-type'] = int(constants.ApplicationTagNumbers.AP_REP.value)
+        tgt_rep['msg-type'] = int(constants.ApplicationTagNumbers.AS_REP.value)
         tgt_rep['crealm'] = self['server'].realm['data']
 
         # Fake EncryptedData
-        tgt_rep['enc-part'] = None
-        tgt_rep['enc-part']['etype'] = 1 
+        tgt_rep['enc-part'] = noValue
+        tgt_rep['enc-part']['etype'] = 1
         tgt_rep['enc-part']['cipher'] = '' 
         seq_set(tgt_rep, 'cname', self['client'].toPrincipal().components_to_asn1)
         ticket = types.Ticket()
@@ -267,19 +269,23 @@ class Credential:
         tgt['sessionKey'] = crypto.Key(cipher.enctype, str(self['key']['keyvalue']))
         return tgt
         
-    def toTGS(self):
+    def toTGS(self, newSPN=None):
         tgs_rep = TGS_REP()
         tgs_rep['pvno'] = 5
         tgs_rep['msg-type'] = int(constants.ApplicationTagNumbers.TGS_REP.value)
         tgs_rep['crealm'] = self['server'].realm['data']
 
         # Fake EncryptedData
-        tgs_rep['enc-part'] = None
-        tgs_rep['enc-part']['etype'] = 1 
+        tgs_rep['enc-part'] = noValue
+        tgs_rep['enc-part']['etype'] = 1
         tgs_rep['enc-part']['cipher'] = '' 
         seq_set(tgs_rep, 'cname', self['client'].toPrincipal().components_to_asn1)
         ticket = types.Ticket()
         ticket.from_asn1(self.ticket['data'])
+        if newSPN is not None:
+            if newSPN.upper() != str(ticket.service_principal).upper():
+                LOG.debug('Changing sname from %s to %s and hoping for the best' % (ticket.service_principal, newSPN) )
+                ticket.service_principal = types.Principal(newSPN, type=int(ticket.service_principal.type))
         seq_set(tgs_rep,'ticket', ticket.to_asn1)
 
         cipher = crypto._enctype_table[self['key']['keytype']]()
@@ -324,7 +330,8 @@ class CCache:
             self.credentials = []
             while len(data) > 0:
                 cred = Credential(data)
-                self.credentials.append(cred)
+                if cred['server'].prettyPrint().find('krb5_ccache_conf_data') < 0:
+                    self.credentials.append(cred)
                 data = data[len(cred.getData()):]
 
     def getData(self):
@@ -336,10 +343,28 @@ class CCache:
             data += credential.getData()
         return data
 
-    def getCredential(self, server):
+    def getCredential(self, server, anySPN=True):
         for c in self.credentials:
-            if c['server'].prettyPrint().upper() == server.upper():
+            if c['server'].prettyPrint().upper() == server.upper() or c['server'].prettyPrint().upper().split('@')[0] == server.upper() \
+                    or c['server'].prettyPrint().upper().split('@')[0] == server.upper().split('@')[0]:
+                LOG.debug('Returning cached credential for %s' % c['server'].prettyPrint().upper())
                 return c
+        LOG.debug('SPN %s not found in cache' % server.upper())
+        if anySPN is True:
+            LOG.debug('AnySPN is True, looking for another suitable SPN')
+            for c in self.credentials:
+                # Let's search for any TGT/TGS that matches the server w/o the SPN's service type/port, returns
+                # the first one
+                if c['server'].prettyPrint().find('/') >=0:
+                    # Let's take the port out for comparison
+                    cachedSPN = '%s@%s'  % (c['server'].prettyPrint().upper().split('/')[1].split('@')[0].split(':')[0],
+                                               c['server'].prettyPrint().upper().split('/')[1].split('@')[1])
+                    searchSPN = '%s@%s' % (server.upper().split('/')[1].split('@')[0].split(':')[0],
+                                               server.upper().split('/')[1].split('@')[1])
+                    if cachedSPN == searchSPN:
+                        LOG.debug('Returning cached credential for %s' % c['server'].prettyPrint().upper())
+                        return c
+
         return None
 
     def toTimeStamp(self, dt, epoch=datetime(1970,1,1)):

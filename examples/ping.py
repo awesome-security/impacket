@@ -1,5 +1,5 @@
-#!/usr/bin/python
-# Copyright (c) 2003 CORE Security Technologies
+#!/usr/bin/env python
+# SECUREAUTH LABS. Copyright 2018 SecureAuth Corporation. All rights reserved.
 #
 # This software is provided under under a slightly modified version
 # of the Apache Software License. See the accompanying LICENSE file
@@ -31,7 +31,7 @@ import sys
 from impacket import ImpactDecoder, ImpactPacket
 
 if len(sys.argv) < 3:
-	print "Use: %s <src ip> <dst ip>" % sys.argv[0]
+	print("Use: %s <src ip> <dst ip>" % sys.argv[0])
 	sys.exit(1)
 
 src = sys.argv[1]
@@ -82,6 +82,6 @@ while 1:
 
 	   # If the packet matches, report it to the user.
 	   if rip.get_ip_dst() == src and rip.get_ip_src() == dst and icmp.ICMP_ECHOREPLY == ricmp.get_icmp_type():
-		   print "Ping reply for sequence #%d" % ricmp.get_icmp_id()
+		   print("Ping reply for sequence #%d" % ricmp.get_icmp_id())
 
 	   time.sleep(1)

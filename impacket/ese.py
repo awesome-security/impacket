@@ -1,5 +1,4 @@
-#!/usr/bin/python
-# Copyright (c) 2003-2016 CORE Security Technologies
+# SECUREAUTH LABS. Copyright 2018 SecureAuth Corporation. All rights reserved.
 #
 # This software is provided under under a slightly modified version
 # of the Apache Software License. See the accompanying LICENSE file
@@ -414,8 +413,7 @@ class ESENT_CATALOG_DATA_DEFINITION_ENTRY(Structure):
         elif dataType == CATALOG_TYPE_LONG_VALUE:
             self.structure += self.other + self.lv_stuff
         elif dataType == CATALOG_TYPE_CALLBACK:
-            LOG.error('CallBack types not supported!')
-            raise
+            raise Exception('CallBack types not supported!')
         else:
             LOG.error('Unknown catalog type 0x%x' % dataType)
             self.structure = ()
@@ -553,8 +551,7 @@ class ESENT_PAGE:
                     #indexEntry.dump()
                 elif self.record['PageFlags'] & FLAGS_LONG_VALUE > 0:
                     # Long Page Value
-                    LOG.error('Long value still not supported')
-                    raise
+                    raise Exception('Long value still not supported')
                 else:
                     # Table Value
                     leafEntry = ESENT_LEAF_ENTRY(flags, data)
@@ -566,8 +563,7 @@ class ESENT_PAGE:
 
     def getTag(self, tagNum):
         if self.record['FirstAvailablePageTag'] < tagNum:
-            LOG.error('Trying to grab an unknown tag 0x%x' % tagNum)
-            raise
+            raise Exception('Trying to grab an unknown tag 0x%x' % tagNum)
 
         tags = self.data[-4*self.record['FirstAvailablePageTag']:]
         baseOffset = len(self.record)
@@ -661,8 +657,7 @@ class ESENT_DB:
         elif catalogEntry['Type'] == CATALOG_TYPE_LONG_VALUE:
             self.__addLongValue(entry)
         else:
-            LOG.error('Unknown type 0x%x' % catalogEntry['Type'])
-            raise
+            raise Exception('Unknown type 0x%x' % catalogEntry['Type'])
 
     def __parseItemName(self,entry):
         dataDefinitionHeader = ESENT_DATA_DEFINITION_HEADER(entry['EntryData'])
@@ -747,7 +742,7 @@ class ESENT_DB:
             done = False
             while done is False:
                 page = self.getPage(pageNum)
-                if page.record['FirstAvailablePageTag'] == 1:
+                if page.record['FirstAvailablePageTag'] <= 1:
                     # There are no records
                     done = True
                 for i in range(1, page.record['FirstAvailablePageTag']):
@@ -781,11 +776,11 @@ class ESENT_DB:
         if page.record['PageFlags'] & FLAGS_LEAF > 0:
             # Leaf page
             if page.record['PageFlags'] & FLAGS_SPACE_TREE > 0:
-                raise
+                raise Exception('FLAGS_SPACE_TREE > 0')
             elif page.record['PageFlags'] & FLAGS_INDEX > 0:
-                raise
+                raise Exception('FLAGS_INDEX > 0')
             elif page.record['PageFlags'] & FLAGS_LONG_VALUE > 0:
-                raise
+                raise Exception('FLAGS_LONG_VALUE > 0')
             else:
                 # Table Value
                 leafEntry = ESENT_LEAF_ENTRY(flags, data)
@@ -812,9 +807,6 @@ class ESENT_DB:
         else:
             return self.__tagToRecord(cursor, tag['EntryData'])
 
-        # We never should get here
-        raise
-
     def __tagToRecord(self, cursor, tag):
         # So my brain doesn't forget, the data record is composed of:
         # Header
@@ -828,7 +820,7 @@ class ESENT_DB:
         #                VariableSizeOffset + numEntries * 2 (bytes)
         # Tagged Data ( > 255 )
         #     After the Variable Size Value, there's more data for the tagged values.
-        #     Right at the beggining there's another array (taggedItems), pointing to the
+        #     Right at the beginning there's another array (taggedItems), pointing to the
         #     values, size.
         #
         # The interesting thing about this DB records is there's no need for all the columns to be there, hence
@@ -954,12 +946,16 @@ class ESENT_DB:
                 # Let's handle strings
                 if record[column] is not None:
                     if columnRecord['CodePage'] not in StringCodePages:
-                        LOG.error('Unknown codepage 0x%x'% columnRecord['CodePage'])
-                        raise
+                        raise Exception('Unknown codepage 0x%x'% columnRecord['CodePage'])
                     stringDecoder = StringCodePages[columnRecord['CodePage']]
 
-                    record[column] = record[column].decode(stringDecoder)
-                
+                    try:
+                        record[column] = record[column].decode(stringDecoder)
+                    except Exception as e:
+                        LOG.debug("Exception:", exc_info=True)
+                        LOG.debug('Fixing Record[%r][%d]: %r' % (column, columnRecord['ColumnType'], record[column]))
+                        record[column] = record[column].decode(stringDecoder, "replace")
+                        pass
             else:
                 unpackData = ColumnTypeSize[columnRecord['ColumnType']]
                 if record[column] is not None:

@@ -1,4 +1,4 @@
-# Copyright (c) 2003-2016 CORE Security Technologies
+# SECUREAUTH LABS. Copyright 2018 SecureAuth Corporation. All rights reserved.
 #
 # This software is provided under under a slightly modified version
 # of the Apache Software License. See the accompanying LICENSE file
@@ -1460,7 +1460,7 @@ class RadioTap(ProtocolPacket):
 
         def __str__( self ):
             return str( self.__class__.__name__ )
-        
+
     class RTF_TSFT(__RadioTapField):
         BIT_NUMBER = 0
         STRUCTURE = "<Q"
@@ -1469,13 +1469,13 @@ class RadioTap(ProtocolPacket):
     class RTF_FLAGS(__RadioTapField):
         BIT_NUMBER = 1
         STRUCTURE = "<B"
-        
-        # From http://www.radiotap.org/defined-fields/Flags
+
+        # https://web.archive.org/web/20160423125307/www.radiotap.org/defined-fields/Flags
         PROPERTY_CFP            = 0x01 #sent/received during CFP
-        PROPERTY_SHORTPREAMBLE  = 0x02 #sent/received with short preamble 
-        PROPERTY_WEP            = 0x04 #sent/received with WEP encryption 
-        PROPERTY_FRAGMENTATION  = 0x08 #sent/received with fragmentation 
-        PROPERTY_FCS_AT_END     = 0x10 #frame includes FCS 
+        PROPERTY_SHORTPREAMBLE  = 0x02 #sent/received with short preamble
+        PROPERTY_WEP            = 0x04 #sent/received with WEP encryption
+        PROPERTY_FRAGMENTATION  = 0x08 #sent/received with fragmentation
+        PROPERTY_FCS_AT_END     = 0x10 #frame includes FCS
         PROPERTY_PAYLOAD_PADDING= 0x20 #frame has padding between 802.11 header and payload (to 32-bit boundary)
         PROPERTY_BAD_FCS        = 0x40 #does not pass FCS check
         PROPERTY_SHORT_GI       = 0x80 #frame used short guard interval (HT). Unspecified but used:
@@ -2326,14 +2326,14 @@ class Dot11ManagementBeacon(Dot11ManagementHelper):
         self.header.set_long_long(0, nb, "<")
 
     def get_beacon_interval(self):
-        'Return the 802.11 Management Beacon frame \'Beacon Inteval\' field' \
+        'Return the 802.11 Management Beacon frame \'Beacon Interval\' field' \
         'To convert it to seconds =>  secs = Beacon_Interval*1024/1000000'
 
         b = self.header.get_word(8, "<")
         return b 
 
     def set_beacon_interval(self, value):
-        'Set the 802.11 Management Beacon frame \'Beacon Inteval\' field' 
+        'Set the 802.11 Management Beacon frame \'Beacon Interval\' field' 
         # set the bits
         nb = value & 0xFFFF
         self.header.set_word(8, nb, "<")
@@ -2415,6 +2415,46 @@ class Dot11ManagementBeacon(Dot11ManagementHelper):
         "Set the 802.11 Management Robust Security Network element."
         self._set_element(DOT11_MANAGEMENT_ELEMENTS.RSN, data)
 
+    def get_erp(self):
+        "Get the 802.11 Management ERP (extended rate PHY) Information element."
+        s = self._get_element(DOT11_MANAGEMENT_ELEMENTS.ERP_INFO)
+        if s is None:
+            return None
+
+        (erp,) = struct.unpack('B',s)
+        
+        return erp
+
+    def set_erp(self, erp):
+        "Set the 802.11 Management ERP (extended rate PHY) Inforamation "\
+        "element."
+        erp_string = struct.pack('B',erp)
+        self._set_element(DOT11_MANAGEMENT_ELEMENTS.ERP_INFO, erp_string)
+
+    def get_country(self):
+        "Get the 802.11 Management Country element." \
+        "Returns a tuple containing Country code, first channel number, "\
+        "number of channels and maximum transmit power level"
+        s = self._get_element(DOT11_MANAGEMENT_ELEMENTS.COUNTRY)
+        if s is None:
+            return None
+
+        code, first, num, max = struct.unpack('3sBBB',s)
+        code = code.strip(' ')
+        return code, first, num, max
+
+    def set_country(self, code, first_channel, number_of_channels, max_power):
+        "Set the 802.11 Management Country element."
+        if len(code) > 3:
+            raise Exception("Country code must be up to 3 bytes long")
+
+        #Padding the country code
+        code += ' ' * (3-len(code))
+
+        country_string = struct.pack('3sBBB', code, first_channel,
+                number_of_channels, max_power)
+        self._set_element(DOT11_MANAGEMENT_ELEMENTS.COUNTRY, country_string)
+
     def get_vendor_specific(self):
         "Get the 802.11 Management Vendor Specific elements "\
         "as a list of tuples."
@@ -2451,7 +2491,7 @@ class Dot11ManagementBeacon(Dot11ManagementHelper):
         data_len=len(data)
 
         if data_len>max_data_len:
-            raise Exception("data allow up to %d bytes long" % max_data)
+            raise Exception("data allow up to %d bytes long" % max_data_len)
         if len(oui) > 3:
             raise Exception("oui is three bytes long")
         
@@ -2687,7 +2727,7 @@ class Dot11ManagementAuthentication(Dot11ManagementHelper):
         data_len=len(data)
 
         if data_len>max_data_len:
-            raise Exception("data allow up to %d bytes long" % max_data)
+            raise Exception("data allow up to %d bytes long" % max_data_len)
         if len(oui) > 3:
             raise Exception("oui is three bytes long")
         
@@ -2811,7 +2851,7 @@ class Dot11ManagementAssociationRequest(Dot11ManagementHelper):
         data_len=len(data)
 
         if data_len>max_data_len:
-            raise Exception("data allow up to %d bytes long" % max_data)
+            raise Exception("data allow up to %d bytes long" % max_data_len)
         if len(oui) > 3:
             raise Exception("oui is three bytes long")
         
@@ -2918,7 +2958,7 @@ class Dot11ManagementAssociationResponse(Dot11ManagementHelper):
         max_data_len=255-3
         data_len=len(data)
         if data_len>max_data_len:
-            raise Exception("data allow up to %d bytes long" % max_data)
+            raise Exception("data allow up to %d bytes long" % max_data_len)
         if len(oui) > 3:
             raise Exception("oui is three bytes long")
         
@@ -3045,7 +3085,7 @@ class Dot11ManagementReassociationRequest(Dot11ManagementHelper):
         data_len=len(data)
 
         if data_len>max_data_len:
-            raise Exception("data allow up to %d bytes long" % max_data)
+            raise Exception("data allow up to %d bytes long" % max_data_len)
         if len(oui) > 3:
             raise Exception("oui is three bytes long")
         

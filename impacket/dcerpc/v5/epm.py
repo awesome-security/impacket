@@ -1,4 +1,4 @@
-# Copyright (c) 2003-2016 CORE Security Technologies
+# SECUREAUTH LABS. Copyright 2018 SecureAuth Corporation. All rights reserved.
 #
 # This software is provided under under a slightly modified version
 # of the Apache Software License. See the accompanying LICENSE file
@@ -11,7 +11,7 @@
 #
 #   Best way to learn how to use these calls is to grab the protocol standard
 #   so you understand what the call does, and then read the test case located
-#   at https://github.com/CoreSecurity/impacket/tree/master/impacket/testcases/SMB_RPC
+#   at https://github.com/SecureAuthCorp/impacket/tree/master/tests/SMB_RPC
 #
 #   Some calls have helper functions, which makes it even easier to use.
 #   They are located at the end of this file. 
@@ -29,6 +29,7 @@ from impacket.dcerpc.v5.dtypes import UUID, LPBYTE, PUUID, ULONG, USHORT
 from impacket.structure import Structure
 from impacket.dcerpc.v5.ndr import NULL
 from impacket.dcerpc.v5.rpcrt import DCERPCException
+from impacket import LOG
 
 MSRPC_UUID_PORTMAP = uuidtup_to_bin(('E1AF8308-5D1F-11C9-91A4-08002B14A0FA', '3.0'))
 
@@ -906,6 +907,8 @@ FLOOR_NBNP_IDENTIFIER  = 0x0f # NetBIOS Named Pipe
 FLOOR_MSNB_IDENTIFIER  = 0x11 # MS NetBIOS HostName
 # PortAddr Identifier
 FLOOR_TCPPORT_IDENTIFIER = 0x07
+# HTTP Protocol
+FLOOR_HTTP_IDENTIFIER  = 0x1f
 
 ################################################################################
 # STRUCTURES
@@ -1190,6 +1193,9 @@ def hept_lookup(destHost, inquiry_type = RPC_C_EP_ALL_ELTS, objectUUID = NULL, i
         rpctransport = transport.DCERPCTransportFactory(stringBinding)
         dce = rpctransport.get_dce_rpc()
         dce.connect()
+        disconnect = True
+    else:
+        disconnect = False
 
     dce.bind(MSRPC_UUID_PORTMAP)
     request = ept_lookup()
@@ -1216,16 +1222,23 @@ def hept_lookup(destHost, inquiry_type = RPC_C_EP_ALL_ELTS, objectUUID = NULL, i
         tmpEntry['tower'] = EPMTower(''.join(entry['tower']['tower_octet_string']))
         entries.append(tmpEntry)
 
-    if dce is None:
+    if disconnect is True:
         dce.disconnect()
 
     return entries
 
-def hept_map(destHost, remoteIf, dataRepresentation = uuidtup_to_bin(('8a885d04-1ceb-11c9-9fe8-08002b104860', '2.0')), protocol = 'ncacn_np'):
-    stringBinding = r'ncacn_ip_tcp:%s[135]' % destHost
-    rpctransport = transport.DCERPCTransportFactory(stringBinding)
-    dce = rpctransport.get_dce_rpc()
-    dce.connect()
+def hept_map(destHost, remoteIf, dataRepresentation = uuidtup_to_bin(('8a885d04-1ceb-11c9-9fe8-08002b104860', '2.0')), protocol = 'ncacn_np', dce=None):
+
+    if dce is None:
+        stringBinding = r'ncacn_ip_tcp:%s[135]' % destHost
+        rpctransport = transport.DCERPCTransportFactory(stringBinding)
+        dce = rpctransport.get_dce_rpc()
+        dce.connect()
+        disconnect = True
+    else:
+        disconnect = False
+
+
     dce.bind(MSRPC_UUID_PORTMAP)
 
     tower = EPMTower()
@@ -1259,7 +1272,20 @@ def hept_map(destHost, remoteIf, dataRepresentation = uuidtup_to_bin(('8a885d04-
         import socket
         hostAddr['Ip4addr'] = socket.inet_aton('0.0.0.0')
         transportData = portAddr.getData() + hostAddr.getData()
+    elif protocol == 'ncacn_http':
+        portAddr = EPMPortAddr()
+        portAddr['PortIdentifier'] = FLOOR_HTTP_IDENTIFIER
+        portAddr['IpPort'] = 0
+
+        hostAddr = EPMHostAddr()
+        import socket
+        hostAddr['Ip4addr'] = socket.inet_aton('0.0.0.0')
+        transportData = portAddr.getData() + hostAddr.getData()
+
     else:
+        LOG.error('%s not support for hetp_map()' % protocol)
+        if disconnect is True:
+            dce.disconnect()
         return None
 
     tower['NumberOfFloors'] = 5
@@ -1289,8 +1315,12 @@ def hept_map(destHost, remoteIf, dataRepresentation = uuidtup_to_bin(('8a885d04-
         # Port Number should be the 4th floor
         portAddr = EPMPortAddr(tower['Floors'][3].getData())
         result = 'ncacn_ip_tcp:%s[%s]' % (destHost, portAddr['IpPort'])
-        
-    dce.disconnect()
+    elif protocol == 'ncacn_http':
+        # Port Number should be the 4th floor
+        portAddr = EPMPortAddr(tower['Floors'][3].getData())
+        result = 'ncacn_http:%s[%s]' % (destHost, portAddr['IpPort'])
+    if disconnect is True:
+        dce.disconnect()
     return result
 
 def PrintStringBinding(floors, serverAddr = '0.0.0.0'):

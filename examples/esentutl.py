@@ -1,5 +1,5 @@
-#!/usr/bin/python
-# Copyright (c) 2003-2016 CORE Security Technologies
+#!/usr/bin/env python
+# SECUREAUTH LABS. Copyright 2018 SecureAuth Corporation. All rights reserved.
 #
 # This software is provided under under a slightly modified version
 # of the Apache Software License. See the accompanying LICENSE file
@@ -40,7 +40,8 @@ def exportTable(ese, tableName):
     while True:
         try:
             record = ese.getNextRow(cursor)
-        except:
+        except Exception as e:
+            logging.debug('Exception:', exc_info=True)
             logging.error('Error while calling getNextRow(), trying the next one')
             continue
 
@@ -57,7 +58,8 @@ def main():
     # Init the example's logger theme
     logger.init()
 
-    parser = argparse.ArgumentParser(add_help = True, description = "Extensive Storage Engine utility. Allows dumping catalog, pages and tables.")
+    parser = argparse.ArgumentParser(add_help = True, description = "Extensive Storage Engine utility. Allows dumping "
+                                                                    "catalog, pages and tables.")
     parser.add_argument('databaseFile', action='store', help='ESE to open')
     parser.add_argument('-debug', action='store_true', help='Turn DEBUG output ON')
     parser.add_argument('-page', action='store', help='page to open')
@@ -96,11 +98,11 @@ def main():
         elif options.action.upper() == 'EXPORT':
             exportTable(ese, options.table)
         else:
-            logging.error('Unknown action %s ' % options.action)
-            raise
+            raise Exception('Unknown action %s ' % options.action)
     except Exception, e:
-        #import traceback
-        #print traceback.print_exc()
+        if logging.getLogger().level == logging.DEBUG:
+            import traceback
+            traceback.print_exc()
         print e
     ese.close()
 

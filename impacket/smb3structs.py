@@ -1,4 +1,4 @@
-# Copyright (c) 2003-2016 CORE Security Technologies
+# SECUREAUTH LABS. Copyright 2018 SecureAuth Corporation. All rights reserved.
 #
 # This software is provided under under a slightly modified version
 # of the Apache Software License. See the accompanying LICENSE file
@@ -68,6 +68,8 @@ SMB2_GLOBAL_CAP_ENCRYPTION         = 0x40
 SMB2_DIALECT_002      = 0x0202 
 SMB2_DIALECT_21       = 0x0210 
 SMB2_DIALECT_30       = 0x0300 
+SMB2_DIALECT_302      = 0x0302  #SMB 3.0.2
+SMB2_DIALECT_311      = 0x0311  #SMB 3.1.1
 SMB2_DIALECT_WILDCARD = 0x02FF 
 
 # SMB2_SESSION_SETUP
@@ -271,6 +273,7 @@ FSCTL_SRV_COPYCHUNK_WRITE            = 0x001480F2
 FSCTL_LMR_REQUEST_RESILIENCY         = 0x001401D4
 FSCTL_QUERY_NETWORK_INTERFACE_INFO   = 0x001401FC
 FSCTL_SET_REPARSE_POINT              = 0x000900A4
+FSCTL_DELETE_REPARSE_POINT           = 0x000900AC
 FSCTL_DFS_GET_REFERRALS_EX           = 0x000601B0
 FSCTL_FILE_LEVEL_TRIM                = 0x00098208
 FSCTL_VALIDATE_NEGOTIATE_INFO        = 0x00140204
@@ -344,6 +347,7 @@ SMB2_0_INFO_SECURITY    = 0x03
 SMB2_0_INFO_QUOTA       = 0x04
 
 # File Information Classes
+SMB2_SEC_INFO_00                      = 0
 SMB2_FILE_ACCESS_INFO                 = 8
 SMB2_FILE_ALIGNMENT_INFO              = 17
 SMB2_FILE_ALL_INFO                    = 18
@@ -415,6 +419,7 @@ SL_INDEX_SPECIFIED      = 0x00000004
 
 # TRANSFORM_HEADER
 SMB2_ENCRYPTION_AES128_CCM = 0x0001
+SMB2_ENCRYPTION_AES128_GCM = 0x0002
 
 
 # STRUCtures
@@ -422,7 +427,7 @@ SMB2_ENCRYPTION_AES128_CCM = 0x0001
 class SMBPacketBase(Structure):
     def addCommand(self,command):
         # Pad to 8 bytes and put the offset of another SMBPacket
-        raise 'Implement This!' 
+        raise Exception('Implement This!')
 
     def isValidAnswer(self, status):
         if self['Status'] != status:
@@ -1118,6 +1123,14 @@ class VALIDATE_NEGOTIATE_INFO(Structure):
         ('Dialects','<H*<H'),
     )
 
+class VALIDATE_NEGOTIATE_INFO_RESPONSE(Structure):
+    structure = (
+        ('Capabilities','<L=0'),
+        ('Guid','16s=""'),
+        ('SecurityMode','<H=0'),
+        ('Dialect','<H'),
+    )
+
 class SRV_SNAPSHOT_ARRAY(Structure):
     structure = (
         ('NumberOfSnapShots','<L=0'),
@@ -1176,6 +1189,27 @@ class NETWORK_INTERFACE_INFO(Structure):
         ('Reserved','<L=0'),
         ('LinkSpeed','<Q=0'),
         ('SockAddr_Storage','128s=""'),
+    )
+
+class MOUNT_POINT_REPARSE_DATA_STRUCTURE(Structure):
+    structure = (
+        ("ReparseTag", "<L=0xA0000003"),
+        ("ReparseDataLen", "<H=len(self['PathBuffer']) + 8"),
+        ("Reserved", "<H=0"),
+        ("SubstituteNameOffset", "<H=0"),
+        ("SubstituteNameLength", "<H=0"),
+        ("PrintNameOffset", "<H=0"),
+        ("PrintNameLength", "<H=0"),
+        ("PathBuffer", ":")
+    )
+
+class MOUNT_POINT_REPARSE_GUID_DATA_STRUCTURE(Structure):
+    structure = (
+        ("ReparseTag", "<L=0xA0000003"),
+        ("ReparseDataLen", "<H=len(self['DataBuffer'])"),
+        ("Reserved", "<H=0"),
+        ("ReparseGuid", "16s=''"),
+        ("DataBuffer", ":")
     )
 
 class SMB2Ioctl_Response(Structure):
@@ -1360,4 +1394,15 @@ class SMB2_TRANSFORM_HEADER(Structure):
 class FileInternalInformation(Structure):
     structure = (
         ('IndexNumber','<q=0'),
+    )
+
+# SMB2_SEC_INFO_00       
+class FileSecInformation(Structure):
+    structure = (
+        ('Revision','<h=1'),
+        ('Type','<h=0'),
+        ('OffsetToOwner','<I=0'),
+        ('OffsetToGroup','<I=0'),
+        ('OffsetToSACL','<I=0'),
+        ('OffsetToDACL','<I=0'),
     )

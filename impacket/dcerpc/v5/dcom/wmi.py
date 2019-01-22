@@ -1,4 +1,4 @@
-# Copyright (c) 2003-2016 CORE Security Technologies
+# SECUREAUTH LABS. Copyright 2018 SecureAuth Corporation. All rights reserved.
 #
 # This software is provided under under a slightly modified version
 # of the Apache Software License. See the accompanying LICENSE file
@@ -11,7 +11,7 @@
 #
 #   Best way to learn how to use these calls is to grab the protocol standard
 #   so you understand what the call does, and then read the test case located
-#   at https://github.com/CoreSecurity/impacket/tree/master/impacket/testcases/SMB_RPC
+#   at https://github.com/SecureAuthCorp/impacket/tree/master/tests/SMB_RPC
 #
 #   Since DCOM is like an OO RPC, instead of helper functions you will see the 
 #   classes described in the standards developed. 
@@ -20,6 +20,7 @@
 from struct import unpack, calcsize, pack
 from functools import partial
 import collections
+import logging
 
 from impacket.dcerpc.v5.ndr import NDRSTRUCT, NDRUniConformantArray, NDRPOINTER, NDRUniConformantVaryingArray, NDRUNION, \
     NDRENUM
@@ -136,6 +137,7 @@ class ENCODED_STRING(Structure):
             # Let's first check the commonHdr
             self.fromString(data)
             self.structure = ()
+            self.isUnicode = False
             if len(data) > 1:
                 if self['Encoded_String_Flag'] == 0:
                     self.structure += self.tascii
@@ -144,12 +146,17 @@ class ENCODED_STRING(Structure):
                     data  = data[:index+1+1]
                 else:
                     self.structure = self.tunicode
-                    index = data[1:].find('\x00\x00')
-                    data = data[:index+1+2]
-            self.fromString(data)
+                    self.isUnicode = True
+
+                self.fromString(data)
         else:
             self.structure = self.tascii
             self.data = None
+
+    def __getitem__(self, key):
+        if key == 'Character' and self.isUnicode:
+            return self.fields['Character'].decode('utf-16le')
+        return Structure.__getitem__(self, key)
 
 
 # 2.2.8 DecServerName
@@ -312,6 +319,16 @@ class ENCODED_VALUE(Structure):
                         item = ENCODED_STRING(heapData)
                         array.append(item['Character'])
                         heapData = heapData[len(str(item)):]
+                elif cimType == CIM_TYPE_ENUM.CIM_ARRAY_OBJECT.value:
+                    # Discard the pointers
+                    heapData = heapData[dataSize*numItems:]
+                    for item in range(numItems):
+                        msb = METHOD_SIGNATURE_BLOCK(heapData)
+                        unit = ENCODING_UNIT()
+                        unit['ObjectEncodingLength'] = msb['EncodingLength']
+                        unit['ObjectBlock'] = msb['ObjectBlock']
+                        array.append(unit)
+                        heapData = heapData[msb['EncodingLength']+4:]
                 else:
                     for item in range(numItems):
                         # ToDo: Learn to unpack the rest of the array of things
@@ -323,8 +340,19 @@ class ENCODED_VALUE(Structure):
                     value = 'True'
                 else:
                     value = 'False'
+            elif pType == CIM_TYPE_ENUM.CIM_TYPE_OBJECT.value:
+                # If the value type is CIM-TYPE-OBJECT, the EncodedValue is a HeapRef to the object encoded as an
+                # ObjectEncodingLength (section 2.2.4) followed by an ObjectBlock (section 2.2.5).
+
+                # ToDo: This is a hack.. We should parse this better. We need to have an ENCODING_UNIT.
+                # I'm going through a METHOD_SIGNATURE_BLOCK first just to parse the ObjectBlock
+                msb = METHOD_SIGNATURE_BLOCK(heapData)
+                unit = ENCODING_UNIT()
+                unit['ObjectEncodingLength'] = msb['EncodingLength']
+                unit['ObjectBlock'] = msb['ObjectBlock']
+                value = unit
             elif pType not in (CIM_TYPE_ENUM.CIM_TYPE_STRING.value, CIM_TYPE_ENUM.CIM_TYPE_DATETIME.value,
-                               CIM_TYPE_ENUM.CIM_TYPE_REFERENCE.value, CIM_TYPE_ENUM.CIM_TYPE_OBJECT.value):
+                               CIM_TYPE_ENUM.CIM_TYPE_REFERENCE.value):
                 value = entry
             else:
                 value = ENCODED_STRING(heapData)['Character']
@@ -713,7 +741,7 @@ class INSTANCE_PROP_QUALIFIER_SET(Structure):
             self.fromString(data)
             if self['InstPropQualSetFlag'] == 2:
                 # We don't support this yet!
-                raise
+                raise Exception("self['InstPropQualSetFlag'] == 2")
             self.fromString(data)
         else:
             self.data = None
@@ -858,7 +886,15 @@ class OBJECT_BLOCK(Structure):
                         print '\t[%s(%s)]' % (qName, qualifiers[qName])
                 print "\t%s %s" % (properties[pName]['stype'], properties[pName]['name']),
                 if properties[pName]['value'] is not None:
-                    print '= %s\n' % properties[pName]['value']
+                    if properties[pName]['type'] == CIM_TYPE_ENUM.CIM_TYPE_OBJECT.value:
+                        print '= IWbemClassObject\n'
+                    elif properties[pName]['type'] == CIM_TYPE_ENUM.CIM_ARRAY_OBJECT.value:
+                        if properties[pName]['value'] == 0:
+                            print '= %s\n' % properties[pName]['value']
+                        else:
+                            print '= %s\n' % list('IWbemClassObject' for _ in range(len(properties[pName]['value'])))
+                    else:
+                        print '= %s\n' % properties[pName]['value']
                 else:
                     print '\n'
 
@@ -2401,19 +2437,19 @@ class IWbemClassObject(IRemUnknown):
 
         #encodingUnit.dump()
         #ENCODING_UNIT(str(encodingUnit)).dump()
-        
+
         objRef['pObjectData'] = encodingUnit
- 
+
         return objRef
 
     def SpawnInstance(self):
         # Doing something similar to:
-        # http://msdn.microsoft.com/en-us/library/aa391458(v=vs.85).aspx
-        # 
+        # https://docs.microsoft.com/windows/desktop/api/wbemcli/nf-wbemcli-iwbemclassobject-spawninstance
+        #
         if self.encodingUnit['ObjectBlock'].isInstance() is False:
             # We need to convert some things to transform a class into an instance
             encodingUnit = ENCODING_UNIT()
-                        
+
             instanceData = OBJECT_BLOCK()
             instanceData.structure += OBJECT_BLOCK.decoration
             instanceData.structure += OBJECT_BLOCK.instanceType
@@ -2514,7 +2550,37 @@ class IWbemClassObject(IRemUnknown):
 
     def createProperties(self, properties):
         for property in properties:
-            setattr(self, property, properties[property]['value'])
+            # Do we have an object property?
+            if properties[property]['type'] == CIM_TYPE_ENUM.CIM_TYPE_OBJECT.value:
+                # Yes.. let's create an Object for it too
+                objRef = OBJREF_CUSTOM()
+                objRef['iid'] = self._iid
+                objRef['clsid'] = CLSID_WbemClassObject
+                objRef['cbExtension'] = 0
+                objRef['ObjectReferenceSize'] = len(str(properties[property]['value']))
+                objRef['pObjectData'] = properties[property]['value']
+                value = IWbemClassObject( INTERFACE(self.get_cinstance(), objRef.getData(), self.get_ipidRemUnknown(),
+                      oxid=self.get_oxid(), target=self.get_target()))
+            elif properties[property]['type'] == CIM_TYPE_ENUM.CIM_ARRAY_OBJECT.value:
+                if isinstance(properties[property]['value'], list):
+                    value = list()
+                    for item in properties[property]['value']:
+                        # Yes.. let's create an Object for it too
+                        objRef = OBJREF_CUSTOM()
+                        objRef['iid'] = self._iid
+                        objRef['clsid'] = CLSID_WbemClassObject
+                        objRef['cbExtension'] = 0
+                        objRef['ObjectReferenceSize'] = len(str(item))
+                        objRef['pObjectData'] = item
+                        wbemClass = IWbemClassObject(
+                            INTERFACE(self.get_cinstance(), objRef.getData(), self.get_ipidRemUnknown(),
+                                      oxid=self.get_oxid(), target=self.get_target()))
+                        value.append(wbemClass)
+                else:
+                    value = properties[property]['value']
+            else:
+                value = properties[property]['value']
+            setattr(self, property, value)
 
     def createMethods(self, classOrInstance, methods):
         class FunctionPool:
@@ -2572,7 +2638,7 @@ class IWbemClassObject(IRemUnknown):
                         else:
                             # ToDo
                             # Not yet ready
-                            raise
+                            raise Exception('inArg not None')
                     elif pType not in (CIM_TYPE_ENUM.CIM_TYPE_STRING.value, CIM_TYPE_ENUM.CIM_TYPE_DATETIME.value,
                                        CIM_TYPE_ENUM.CIM_TYPE_REFERENCE.value, CIM_TYPE_ENUM.CIM_TYPE_OBJECT.value):
                         valueTable += pack(packStr, inArg)
@@ -2585,7 +2651,15 @@ class IWbemClassObject(IRemUnknown):
                             ndTable |= 3 << (2*i)
                     else:
                         strIn = ENCODED_STRING()
-                        strIn['Character'] = inArg
+                        if type(inArg) is unicode:
+                            # The Encoded-String-Flag is set to 0x01 if the sequence of characters that follows
+                            # consists of UTF-16 characters (as specified in [UNICODE]) followed by a UTF-16 null
+                            # terminator.
+                            strIn['Encoded_String_Flag'] = 0x1
+                            strIn.structure = strIn.tunicode
+                            strIn['Character'] = inArg.encode('utf-16le')
+                        else:
+                            strIn['Character'] = inArg
                         valueTable += pack('<L', curHeapPtr)
                         instanceHeap += str(strIn)
                         curHeapPtr = len(instanceHeap)
@@ -2656,8 +2730,9 @@ class IWbemClassObject(IRemUnknown):
                 #return self.__iWbemServices.ExecMethod('Win32_Process.Handle="436"', methodDefinition['name'],
                 #                                       pInParams=objRefCustomIn).getObject().ctCurrent['properties']
             except Exception, e:
-                #import traceback
-                #print traceback.print_exc()
+                if LOG.level == logging.DEBUG:
+                    import traceback
+                    traceback.print_exc()
                 LOG.error(str(e))
 
         for methodName in methods:

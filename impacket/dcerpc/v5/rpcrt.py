@@ -1,4 +1,4 @@
-# Copyright (c) 2003-2016 CORE Security Technologies
+# SECUREAUTH LABS. Copyright 2018 SecureAuth Corporation. All rights reserved.
 #
 # This software is provided under under a slightly modified version
 # of the Apache Software License. See the accompanying LICENSE file
@@ -9,7 +9,7 @@
 #
 #   Best way to learn how to use these calls is to grab the protocol standard
 #   so you understand what the call does, and then read the test case located
-#   at https://github.com/CoreSecurity/impacket/tree/master/impacket/testcases/SMB_RPC
+#   at https://github.com/SecureAuthCorp/impacket/tree/master/tests/SMB_RPC
 #
 # ToDo: 
 # [ ] Take out all the security provider stuff out of here (e.g. RPC_C_AUTHN_WINNT)
@@ -21,7 +21,7 @@ import logging
 import socket
 import sys
 from binascii import unhexlify
-from Crypto.Cipher import ARC4
+from Cryptodome.Cipher import ARC4
 
 from impacket import ntlm, LOG
 from impacket.structure import Structure,pack,unpack
@@ -113,10 +113,10 @@ rpc_cont_def_result = {
 }
 
 #status codes, references:
-#http://msdn.microsoft.com/library/default.asp?url=/library/en-us/rpc/rpc/rpc_return_values.asp
-#http://msdn.microsoft.com/library/default.asp?url=/library/en-us/randz/protocol/common_return_values.asp
+#https://docs.microsoft.com/windows/desktop/Rpc/rpc-return-values
+#https://msdn.microsoft.com/library/default.asp?url=/library/en-us/randz/protocol/common_return_values.asp
 #winerror.h
-#http://www.opengroup.org/onlinepubs/9629399/apdxn.htm
+#https://www.opengroup.org/onlinepubs/9629399/apdxn.htm
 
 rpc_status_codes = {
     0x00000005L : 'rpc_s_access_denied',
@@ -854,7 +854,7 @@ class DCERPC:
                     # No luck :(
                     exception = sessionErrorClass(error_code = error_code)
                 else:
-                    exception = sessionErrorClass(packet = response)
+                    exception = sessionErrorClass(packet = response, error_code = error_code)
             raise exception
         else:
             response =  respClass(answer, isNDR64 = isNDR64)
@@ -986,7 +986,7 @@ class DCERPC_v5(DCERPC):
                                                                                      self.__domain, self.__lmhash,
                                                                                      self.__nthash, self.__aesKey,
                                                                                      self.__TGT, self.__TGS,
-                                                                                     self._transport.getRemoteHost(),
+                                                                                     self._transport.getRemoteName(),
                                                                                      self._transport.get_kdcHost())
             else:
                 raise DCERPCException('Unsupported auth_type 0x%x' % self.__auth_type)
@@ -1548,7 +1548,7 @@ class DCERPCServer(Thread):
                         self.send(answer)
             except Exception:
                 #import traceback
-                #print traceback.print_exc()
+                #traceback.print_exc()
                 pass
             self._clientSock.close()
 

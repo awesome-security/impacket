@@ -1,4 +1,4 @@
-# Copyright (c) 2003-2016 CORE Security Technologies
+# SECUREAUTH LABS. Copyright 2018 SecureAuth Corporation. All rights reserved.
 #
 # This software is provided under under a slightly modified version
 # of the Apache Software License. See the accompanying LICENSE file
@@ -1551,7 +1551,7 @@ class TCP(Header):
         return self.set_th_flags(tmp_value)
 
     def get_padded_options(self):
-        "Return an array containing all options padded to a 4 byte boundry"
+        "Return an array containing all options padded to a 4 byte boundary"
         op_buf = array.array('B')
         for op in self.__option_list:
             op_buf += op.get_bytes()

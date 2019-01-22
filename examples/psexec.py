@@ -1,5 +1,5 @@
-#!/usr/bin/python
-# Copyright (c) 2003-2016 CORE Security Technologies
+#!/usr/bin/env python
+# SECUREAUTH LABS. Copyright 2018 SecureAuth Corporation. All rights reserved.
 #
 # This software is provided under under a slightly modified version
 # of the Apache Software License. See the accompanying LICENSE file
@@ -55,7 +55,7 @@ lock = Lock()
 
 class PSEXEC:
     def __init__(self, command, path, exeFile, copyFile, port=445,
-                 username='', password='', domain='', hashes=None, aesKey=None, doKerberos=False, kdcHost=None):
+                 username='', password='', domain='', hashes=None, aesKey=None, doKerberos=False, kdcHost=None, serviceName=None):
         self.__username = username
         self.__password = password
         self.__port = port
@@ -69,6 +69,7 @@ class PSEXEC:
         self.__copyFile = copyFile
         self.__doKerberos = doKerberos
         self.__kdcHost = kdcHost
+        self.__serviceName = serviceName
         if hashes is not None:
             self.__lmhash, self.__nthash = hashes.split(':')
 
@@ -101,8 +102,7 @@ class PSEXEC:
                 pass
 
         if tries == 0:
-            logging.critical('Pipe not ready, aborting')
-            raise
+            raise Exception('Pipe not ready, aborting')
 
         fid = s.openFile(tid,pipe,accessMask, creationOption = 0x40, fileAttributes = 0x80)
 
@@ -114,8 +114,9 @@ class PSEXEC:
         try:
             dce.connect()
         except Exception, e:
-            #import traceback
-            #traceback.print_exc()
+            if logging.getLogger().level == logging.DEBUG:
+                import traceback
+                traceback.print_exc()
             logging.critical(str(e))
             sys.exit(1)
 
@@ -129,7 +130,7 @@ class PSEXEC:
             # We don't wanna deal with timeouts from now on.
             s.setTimeout(100000)
             if self.__exeFile is None:
-                installService = serviceinstall.ServiceInstall(rpctransport.get_smb_connection(), remcomsvc.RemComSvc())
+                installService = serviceinstall.ServiceInstall(rpctransport.get_smb_connection(), remcomsvc.RemComSvc(), self.__serviceName)
             else:
                 try:
                     f = open(self.__exeFile)
@@ -138,7 +139,8 @@ class PSEXEC:
                     sys.exit(1)
                 installService = serviceinstall.ServiceInstall(rpctransport.get_smb_connection(), f)
     
-            installService.install()
+            if installService.install() is False:
+                return
 
             if self.__exeFile is not None:
                 f.close()
@@ -198,9 +200,11 @@ class PSEXEC:
 
         except SystemExit:
             raise
-        except:
-            #import traceback
-            #traceback.print_exc()
+        except Exception as e:
+            if logging.getLogger().level == logging.DEBUG:
+                import traceback
+                traceback.print_exc()
+            logging.debug(str(e))
             if unInstalled is False:
                 installService.uninstall()
                 if self.__copyFile is not None:
@@ -241,8 +245,9 @@ class Pipes(Thread):
             self.fid = self.server.openFile(self.tid,self.pipe,self.permissions, creationOption = 0x40, fileAttributes = 0x80)
             self.server.setTimeout(1000000)
         except:
-            import traceback
-            traceback.print_exc()
+            if logging.getLogger().level == logging.DEBUG:
+                import traceback
+                traceback.print_exc()
             logging.error("Something wen't wrong connecting the pipes(%s), try again" % self.__class__)
 
 
@@ -413,8 +418,10 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(add_help = True, description = "PSEXEC like functionality example using RemComSvc.")
 
     parser.add_argument('target', action='store', help='[[domain/]username[:password]@]<targetName or address>')
-    parser.add_argument('command', nargs='*', default = ' ', help='command (or arguments if -c is used) to execute at the target (w/o path) - (default:cmd.exe)')
-    parser.add_argument('-c', action='store',metavar = "pathname",  help='copy the filename for later execution, arguments are passed in the command option')
+    parser.add_argument('command', nargs='*', default = ' ', help='command (or arguments if -c is used) to execute at '
+                                                                  'the target (w/o path) - (default:cmd.exe)')
+    parser.add_argument('-c', action='store',metavar = "pathname",  help='copy the filename for later execution, '
+                                                                         'arguments are passed in the command option')
     parser.add_argument('-path', action='store', help='path of the command to execute')
     parser.add_argument('-file', action='store', help="alternative RemCom binary (be sure it doesn't require CRT)")
     parser.add_argument('-debug', action='store_true', help='Turn DEBUG output ON')
@@ -423,18 +430,23 @@ if __name__ == '__main__':
 
     group.add_argument('-hashes', action="store", metavar = "LMHASH:NTHASH", help='NTLM hashes, format is LMHASH:NTHASH')
     group.add_argument('-no-pass', action="store_true", help='don\'t ask for password (useful for -k)')
-    group.add_argument('-k', action="store_true", help='Use Kerberos authentication. Grabs credentials from ccache file (KRB5CCNAME) based on target parameters. If valid credentials cannot be found, it will use the ones specified in the command line')
-    group.add_argument('-aesKey', action="store", metavar = "hex key", help='AES key to use for Kerberos Authentication (128 or 256 bits)')
+    group.add_argument('-k', action="store_true", help='Use Kerberos authentication. Grabs credentials from ccache file '
+                       '(KRB5CCNAME) based on target parameters. If valid credentials cannot be found, it will use the '
+                       'ones specified in the command line')
+    group.add_argument('-aesKey', action="store", metavar = "hex key", help='AES key to use for Kerberos Authentication '
+                                                                            '(128 or 256 bits)')
 
     group = parser.add_argument_group('connection')
 
     group.add_argument('-dc-ip', action='store', metavar="ip address",
-                       help='IP Address of the domain controller. If ommited it use the domain part (FQDN) specified in the target parameter')
+                       help='IP Address of the domain controller. If omitted it will use the domain part (FQDN) specified in '
+                            'the target parameter')
     group.add_argument('-target-ip', action='store', metavar="ip address",
-                       help='IP Address of the target machine. If ommited it will use whatever was specified as target. '
+                       help='IP Address of the target machine. If omitted it will use whatever was specified as target. '
                             'This is useful when target is the NetBIOS name and you cannot resolve it')
     group.add_argument('-port', choices=['139', '445'], nargs='?', default='445', metavar="destination port",
                        help='Destination port to connect to SMB Server')
+    group.add_argument('-service-name', action='store', metavar="service name", default = '', help='This will be the name of the service')
 
     if len(sys.argv)==1:
         parser.print_help()
@@ -475,5 +487,5 @@ if __name__ == '__main__':
         command = 'cmd.exe'
 
     executer = PSEXEC(command, options.path, options.file, options.c, int(options.port), username, password, domain, options.hashes,
-                      options.aesKey, options.k, options.dc_ip)
+                      options.aesKey, options.k, options.dc_ip, options.service_name)
     executer.run(remoteName, options.target_ip)

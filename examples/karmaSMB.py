@@ -1,5 +1,5 @@
-#!/usr/bin/python
-# Copyright (c) 2016 CORE Security Technologies
+#!/usr/bin/env python
+# SECUREAUTH LABS. Copyright 2018 SecureAuth Corporation. All rights reserved.
 #
 # This software is provided under under a slightly modified version
 # of the Apache Software License. See the accompanying LICENSE file
@@ -134,7 +134,7 @@ class KarmaSMBServer(Thread):
         self.origsmb2Close = self.server.hookSmb2Command(smb2.SMB2_CLOSE, self.smb2Close)
 
         # Now we have to register the MS-SRVS server. This specially important for 
-        # Windows 7+ and Mavericks clients since they WONT (specially OSX) 
+        # Windows 7+ and Mavericks clients since they WON'T (specially OSX) 
         # ask for shares using MS-RAP.
 
         self.__srvsServer = SRVSServer()
@@ -168,7 +168,7 @@ class KarmaSMBServer(Thread):
             searchResult, searchCount, errorCode = findFirst2(path, 
                           targetFile, 
                           findFirst2Parameters['InformationLevel'], 
-                          findFirst2Parameters['SearchAttributes'] )
+                          findFirst2Parameters['SearchAttributes'], pktFlags = recvPacket['Flags2'] )
 
             respParameters = smb.SMBFindFirst2Response_Parameters()
             endOfSearch = 1
@@ -506,7 +506,8 @@ class KarmaSMBServer(Thread):
 
         resp = smb.NewSMBPacket()
         resp['Flags1'] = smb.SMB.FLAGS1_REPLY
-        resp['Flags2'] = smb.SMB.FLAGS2_EXTENDED_SECURITY | smb.SMB.FLAGS2_NT_STATUS | smb.SMB.FLAGS2_LONG_NAMES | recvPacket['Flags2'] & smb.SMB.FLAGS2_UNICODE
+        resp['Flags2'] = smb.SMB.FLAGS2_EXTENDED_SECURITY | smb.SMB.FLAGS2_NT_STATUS | smb.SMB.FLAGS2_LONG_NAMES | \
+                         recvPacket['Flags2'] & smb.SMB.FLAGS2_UNICODE
 
         resp['Tid'] = recvPacket['Tid']
         resp['Mid'] = recvPacket['Mid']
@@ -590,10 +591,13 @@ if __name__ == '__main__':
     # Init the example's logger theme
     logger.init()
     print version.BANNER
-    parser = argparse.ArgumentParser(add_help = False, description = "For every file request received, this module will return the pathname contents")
+    parser = argparse.ArgumentParser(add_help = False, description = "For every file request received, this module will "
+                                                                     "return the pathname contents")
     parser.add_argument("--help", action="help", help='show this help message and exit')
-    parser.add_argument('fileName', action='store', metavar = 'pathname', help="Pathname's contents to deliver to SMB clients")
-    parser.add_argument('-config', type=argparse.FileType('r'), metavar = 'pathname', help='config file name to map extensions to files to deliver. For those extensions not present, pathname will be delivered')
+    parser.add_argument('fileName', action='store', metavar = 'pathname', help="Pathname's contents to deliver to SMB "
+                                                                               "clients")
+    parser.add_argument('-config', type=argparse.FileType('r'), metavar = 'pathname', help='config file name to map '
+                        'extensions to files to deliver. For those extensions not present, pathname will be delivered')
     parser.add_argument('-smb2support', action='store_true', default=False, help='SMB2 Support (experimental!)')
 
 

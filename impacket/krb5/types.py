@@ -161,16 +161,15 @@ class Address(object):
             return socket.AF_INET
         elif self.type == constants.AddressType.IPv4.value:
             return socket.AF_INET6
-            self.address = socket.inet_pton(self.family, data)
         else:
             return None
 
     @property
     def address(self):
         if self.type == constants.AddressType.IPv4.value:
-            return socket.inet_pton(self.family, data)
+            return socket.inet_pton(self.family, self.data)
         elif self.type == constants.AddressType.IPv4.value:
-            return socket.inet_pton(self.family, data)
+            return socket.inet_pton(self.family, self.data)
         else:
             return None
 
@@ -188,7 +187,10 @@ class EncryptedData(object):
         data = _asn1_decode(data, asn1.EncryptedData())
         self.etype = constants.EncryptionTypes(data.getComponentByName('etype')).value
         kvno = data.getComponentByName('kvno')
-        self.kvno = kvno and int(kvno)
+        if (kvno is None) or (kvno.hasValue() is False):
+            self.kvno = False
+        else:
+            self.kvno = True
         self.ciphertext = str(data.getComponentByName('cipher'))
         return self
 

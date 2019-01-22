@@ -1,5 +1,5 @@
-#!/usr/bin/python
-# Copyright (c) 2003-2016 CORE Security Technologies
+#!/usr/bin/env python
+# SECUREAUTH LABS. Copyright 2018 SecureAuth Corporation. All rights reserved.
 #
 # This software is provided under under a slightly modified version
 # of the Apache Software License. See the accompanying LICENSE file
@@ -114,7 +114,7 @@ class SVCCTL:
             elif resp['lpServiceConfig']['dwStartType'] == 0x4:
                 print "DISABLED"
             else:
-                print "UNKOWN"
+                print "UNKNOWN"
 
             print "ERROR_CONTROL     : %2d - " % resp['lpServiceConfig']['dwErrorControl'],
             if resp['lpServiceConfig']['dwErrorControl'] == 0x0:
@@ -126,7 +126,7 @@ class SVCCTL:
             elif resp['lpServiceConfig']['dwErrorControl'] == 0x3:
                 print "CRITICAL"
             else:
-                print "UNKOWN"
+                print "UNKNOWN"
             print "BINARY_PATH_NAME  : %s" % resp['lpServiceConfig']['lpBinaryPathName'][:-1]
             print "LOAD_ORDER_GROUP  : %s" % resp['lpServiceConfig']['lpLoadOrderGroup'][:-1]
             print "TAG               : %d" % resp['lpServiceConfig']['dwTagId']
@@ -153,7 +153,7 @@ class SVCCTL:
             elif state == scmr.SERVICE_STOPPED:
                print "STOPPED"
             else:
-               print "UNKOWN"
+               print "UNKNOWN"
         elif self.__action == 'LIST':
             logging.info("Listing services available on target")
             #resp = rpc.EnumServicesStatusW(scManagerHandle, svcctl.SERVICE_WIN32_SHARE_PROCESS )
@@ -178,7 +178,7 @@ class SVCCTL:
                 elif state == scmr.SERVICE_STOPPED:
                    print "STOPPED"
                 else:
-                   print "UNKOWN"
+                   print "UNKNOWN"
             print "Total Services: %d" % len(resp)
         elif self.__action == 'CREATE':
             logging.info("Creating service %s" % self.__options.name)
@@ -290,21 +290,30 @@ if __name__ == '__main__':
     create_parser.add_argument('-path', action='store', required=False, help='binary path')
     create_parser.add_argument('-service_type', action='store', required=False, help='service type')
     create_parser.add_argument('-start_type', action='store', required=False, help='service start type')
-    create_parser.add_argument('-start_name', action='store', required=False, help='string that specifies the name of the account under which the service should run')
-    create_parser.add_argument('-password', action='store', required=False, help='string that contains the password of the account whose name was specified by the start_name parameter')
+    create_parser.add_argument('-start_name', action='store', required=False, help='string that specifies the name of '
+                               'the account under which the service should run')
+    create_parser.add_argument('-password', action='store', required=False, help='string that contains the password of '
+                               'the account whose name was specified by the start_name parameter')
 
     group = parser.add_argument_group('authentication')
 
     group.add_argument('-hashes', action="store", metavar = "LMHASH:NTHASH", help='NTLM hashes, format is LMHASH:NTHASH')
     group.add_argument('-no-pass', action="store_true", help='don\'t ask for password (useful for -k)')
-    group.add_argument('-k', action="store_true", help='Use Kerberos authentication. Grabs credentials from ccache file (KRB5CCNAME) based on target parameters. If valid credentials cannot be found, it will use the ones specified in the command line')
-    group.add_argument('-aesKey', action="store", metavar = "hex key", help='AES key to use for Kerberos Authentication (128 or 256 bits)')
+    group.add_argument('-k', action="store_true", help='Use Kerberos authentication. Grabs credentials from ccache file '
+                       '(KRB5CCNAME) based on target parameters. If valid credentials cannot be found, it will use the '
+                       'ones specified in the command line')
+    group.add_argument('-aesKey', action="store", metavar = "hex key", help='AES key to use for Kerberos Authentication '
+                                                                            '(128 or 256 bits)')
 
     group = parser.add_argument_group('connection')
 
-    group.add_argument('-dc-ip', action='store',metavar = "ip address", help='IP Address of the domain controller. If ommited it use the domain part (FQDN) specified in the target parameter')
-    group.add_argument('-target-ip', action='store', metavar="ip address", help='IP Address of the target machine. If ommited it will use whatever was specified as target. This is useful when target is the NetBIOS name and you cannot resolve it')
-    group.add_argument('-port', choices=['139', '445'], nargs='?', default='445', metavar="destination port", help='Destination port to connect to SMB Server')
+    group.add_argument('-dc-ip', action='store',metavar = "ip address", help='IP Address of the domain controller. If '
+                       'ommited it use the domain part (FQDN) specified in the target parameter')
+    group.add_argument('-target-ip', action='store', metavar="ip address", help='IP Address of the target machine. If '
+                       'ommited it will use whatever was specified as target. This is useful when target is the NetBIOS '
+                       'name and you cannot resolve it')
+    group.add_argument('-port', choices=['139', '445'], nargs='?', default='445', metavar="destination port",
+                       help='Destination port to connect to SMB Server')
  
     if len(sys.argv)==1:
         parser.print_help()
@@ -344,4 +353,7 @@ if __name__ == '__main__':
     try:
         services.run(remoteName, options.target_ip)
     except Exception, e:
+        if logging.getLogger().level == logging.DEBUG:
+            import traceback
+            traceback.print_exc()
         logging.error(str(e))

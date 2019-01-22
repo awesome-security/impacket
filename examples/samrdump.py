@@ -1,5 +1,5 @@
-#!/usr/bin/python
-# Copyright (c) 2003-2016 CORE Security Technologies
+#!/usr/bin/env python
+# SECUREAUTH LABS. Copyright 2018 SecureAuth Corporation. All rights reserved.
 #
 # This software is provided under under a slightly modified version
 # of the Apache Software License. See the accompanying LICENSE file
@@ -19,6 +19,7 @@ import logging
 import argparse
 import codecs
 
+from datetime import datetime
 from impacket.examples import logger
 from impacket import version
 from impacket.nt_errors import STATUS_MORE_ENTRIES
@@ -31,7 +32,7 @@ class ListUsersException(Exception):
 
 class SAMRDump:
     def __init__(self, username='', password='', domain='', hashes=None,
-                 aesKey=None, doKerberos=False, kdcHost=None, port=445):
+                 aesKey=None, doKerberos=False, kdcHost=None, port=445, csvOutput=False):
 
         self.__username = username
         self.__password = password
@@ -42,9 +43,16 @@ class SAMRDump:
         self.__doKerberos = doKerberos
         self.__kdcHost = kdcHost
         self.__port = port
+        self.__csvOutput = csvOutput
 
         if hashes is not None:
             self.__lmhash, self.__nthash = hashes.split(':')
+
+    @staticmethod
+    def getUnixTime(t):
+        t -= 116444736000000000
+        t /= 10000000
+        return t
 
     def dump(self, remoteName, remoteHost):
         """Dumps the list of users and shares registered present at
@@ -76,14 +84,43 @@ class SAMRDump:
 
         # Display results.
 
+        if self.__csvOutput is True:
+            print '#Name,RID,FullName,PrimaryGroupId,BadPasswordCount,LogonCount,PasswordLastSet,PasswordDoesNotExpire,AccountIsDisabled,UserComment,ScriptPath'
+
         for entry in entries:
             (username, uid, user) = entry
-            base = "%s (%d)" % (username, uid)
-            print base + '/FullName:', user['FullName']
-            print base + '/UserComment:', user['UserComment']
-            print base + '/PrimaryGroupId:', user['PrimaryGroupId']
-            print base + '/BadPasswordCount:', user['BadPasswordCount']
-            print base + '/LogonCount:', user['LogonCount']
+            pwdLastSet = (user['PasswordLastSet']['HighPart'] << 32) + user['PasswordLastSet']['LowPart']
+            if pwdLastSet == 0:
+                pwdLastSet = '<never>'
+            else:
+                pwdLastSet = str(datetime.fromtimestamp(self.getUnixTime(pwdLastSet)))
+
+            if user['UserAccountControl'] & samr.USER_DONT_EXPIRE_PASSWORD:
+                dontExpire = 'True'
+            else:
+                dontExpire = 'False'
+
+            if user['UserAccountControl'] & samr.USER_ACCOUNT_DISABLED:
+                accountDisabled = 'True'
+            else:
+                accountDisabled = 'False'
+
+            if self.__csvOutput is True:
+                print '%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s' % (username, uid, user['FullName'], user['PrimaryGroupId'],
+                                                      user['BadPasswordCount'], user['LogonCount'],pwdLastSet,
+                                                      dontExpire, accountDisabled, user['UserComment'].replace(',','.'),
+                                                      user['ScriptPath']  )
+            else:
+                base = "%s (%d)" % (username, uid)
+                print base + '/FullName:', user['FullName']
+                print base + '/UserComment:', user['UserComment']
+                print base + '/PrimaryGroupId:', user['PrimaryGroupId']
+                print base + '/BadPasswordCount:', user['BadPasswordCount']
+                print base + '/LogonCount:', user['LogonCount']
+                print base + '/PasswordLastSet:',pwdLastSet
+                print base + '/PasswordDoesNotExpire:',dontExpire
+                print base + '/AccountIsDisabled:',accountDisabled
+                print base + '/ScriptPath:', user['ScriptPath']
 
         if entries:
             num = len(entries)
@@ -160,23 +197,32 @@ if __name__ == '__main__':
         sys.stdout = codecs.getwriter('utf8')(sys.stdout)
     print version.BANNER
 
-    parser = argparse.ArgumentParser(add_help = True, description = "This script downloads the list of users for the target system.")
+    parser = argparse.ArgumentParser(add_help = True, description = "This script downloads the list of users for the "
+                                                                    "target system.")
 
     parser.add_argument('target', action='store', help='[[domain/]username[:password]@]<targetName or address>')
+    parser.add_argument('-csv', action='store_true', help='Turn CSV output')
     parser.add_argument('-debug', action='store_true', help='Turn DEBUG output ON')
 
     group = parser.add_argument_group('connection')
 
-    group.add_argument('-dc-ip', action='store',metavar = "ip address", help='IP Address of the domain controller. If ommited it use the domain part (FQDN) specified in the target parameter')
-    group.add_argument('-target-ip', action='store', metavar="ip address", help='IP Address of the target machine. If ommited it will use whatever was specified as target. This is useful when target is the NetBIOS name and you cannot resolve it')
-    group.add_argument('-port', choices=['139', '445'], nargs='?', default='445', metavar="destination port", help='Destination port to connect to SMB Server')
+    group.add_argument('-dc-ip', action='store',metavar = "ip address", help='IP Address of the domain controller. If '
+                       'ommited it use the domain part (FQDN) specified in the target parameter')
+    group.add_argument('-target-ip', action='store', metavar="ip address", help='IP Address of the target machine. If '
+                       'ommited it will use whatever was specified as target. This is useful when target is the NetBIOS '
+                       'name and you cannot resolve it')
+    group.add_argument('-port', choices=['139', '445'], nargs='?', default='445', metavar="destination port",
+                       help='Destination port to connect to SMB Server')
 
     group = parser.add_argument_group('authentication')
 
     group.add_argument('-hashes', action="store", metavar = "LMHASH:NTHASH", help='NTLM hashes, format is LMHASH:NTHASH')
     group.add_argument('-no-pass', action="store_true", help='don\'t ask for password (useful for -k)')
-    group.add_argument('-k', action="store_true", help='Use Kerberos authentication. Grabs credentials from ccache file (KRB5CCNAME) based on target parameters. If valid credentials cannot be found, it will use the ones specified in the command line')
-    group.add_argument('-aesKey', action="store", metavar = "hex key", help='AES key to use for Kerberos Authentication (128 or 256 bits)')
+    group.add_argument('-k', action="store_true", help='Use Kerberos authentication. Grabs credentials from ccache file '
+                       '(KRB5CCNAME) based on target parameters. If valid credentials cannot be found, it will use the '
+                       'ones specified in the command line')
+    group.add_argument('-aesKey', action="store", metavar = "hex key", help='AES key to use for Kerberos Authentication '
+                                                                            '(128 or 256 bits)')
 
     if len(sys.argv)==1:
         parser.print_help()
@@ -212,5 +258,5 @@ if __name__ == '__main__':
         from getpass import getpass
         password = getpass("Password:")
 
-    dumper = SAMRDump(username, password, domain, options.hashes, options.aesKey, options.k, options.dc_ip, int(options.port))
+    dumper = SAMRDump(username, password, domain, options.hashes, options.aesKey, options.k, options.dc_ip, int(options.port), options.csv)
     dumper.dump(remoteName, options.target_ip)
